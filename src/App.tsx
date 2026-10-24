@@ -20,6 +20,7 @@ import {
   Database,
   Gauge,
   Globe,
+  Languages,
   LayoutDashboard,
   PenSquare,
   Play,
@@ -46,6 +47,8 @@ import {
   StatusPill,
   SugarCard,
 } from "./components/ui";
+import { MewlLocalizedError } from "./i18n/localized-error";
+import { useI18n, type TranslationKey } from "./i18n";
 import {
   type AlertRecord,
   type AlertSeverity,
@@ -101,7 +104,11 @@ type PersistedWorkspaceState = {
     automationHistory: AutomationHistoryEntry[];
     monitorHistory: MonitorHistorySeries[];
     logs: UnifiedLogEvent[];
-    commandState: string;
+    // undefined signals "not persisted", letting the caller apply the
+    // locale-aware default message instead of freezing English copy here.
+    // undefined 表示“未持久化”，由调用方应用跟随语言的默认消息，
+    // 避免在此处固化英文文案。
+    commandState: string | undefined;
   };
 };
 
@@ -121,39 +128,44 @@ const monitorMetricHexMap: Record<string, string> = {
   gpu: accent.rose,
 };
 
+// Navigation metadata. Labels are translation keys resolved at render time so
+// a locale switch re-renders the sidebar without rebuilding anything.
+// 导航元数据。label 是翻译键，渲染时解析，切换语言即可刷新侧边栏。
 const viewMeta: Array<{
   id: WorkspaceView;
-  label: string;
+  labelKey: TranslationKey;
   icon: typeof LayoutDashboard;
   hex: string;
 }> = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard, hex: accent.rose },
-  { id: "processes", label: "Processes", icon: Server, hex: accent.cyan },
-  { id: "managed", label: "Managed", icon: Sparkles, hex: accent.rose },
-  { id: "logs", label: "Logs", icon: Terminal, hex: accent.green },
-  { id: "ports", label: "Ports", icon: Waypoints, hex: accent.purple },
-  { id: "monitor", label: "Monitor", icon: Activity, hex: accent.amber },
+  { id: "overview", labelKey: "nav.overview", icon: LayoutDashboard, hex: accent.rose },
+  { id: "processes", labelKey: "nav.processes", icon: Server, hex: accent.cyan },
+  { id: "managed", labelKey: "nav.managed", icon: Sparkles, hex: accent.rose },
+  { id: "logs", labelKey: "nav.logs", icon: Terminal, hex: accent.green },
+  { id: "ports", labelKey: "nav.ports", icon: Waypoints, hex: accent.purple },
+  { id: "monitor", labelKey: "nav.monitor", icon: Activity, hex: accent.amber },
 ];
 
-const statusFilterOptions: Array<{ id: StatusFilter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "active", label: "Active" },
-  { id: "watching", label: "Watching" },
-  { id: "issues", label: "Issues" },
+const statusFilterOptions: Array<{ id: StatusFilter; labelKey: TranslationKey }> = [
+  { id: "all", labelKey: "filters.all" },
+  { id: "active", labelKey: "filters.active" },
+  { id: "watching", labelKey: "filters.watching" },
+  { id: "issues", labelKey: "filters.issues" },
 ];
 
-const alertSeverityOptions: Array<{ id: AlertSeverityFilter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "critical", label: "Critical" },
-  { id: "warning", label: "Warning" },
-  { id: "info", label: "Info" },
+const alertSeverityOptions: Array<{ id: AlertSeverityFilter; labelKey: TranslationKey }> = [
+  { id: "all", labelKey: "filters.all" },
+  { id: "critical", labelKey: "severity.critical" },
+  { id: "warning", labelKey: "severity.warning" },
+  { id: "info", labelKey: "severity.info" },
 ];
 
-const alertTimeWindowOptions: Array<{ id: AlertTimeWindow; label: string; hours: number | null }> = [
-  { id: "all", label: "All Time", hours: null },
-  { id: "1h", label: "1H", hours: 1 },
-  { id: "24h", label: "24H", hours: 24 },
-  { id: "7d", label: "7D", hours: 24 * 7 },
+// "1H"/"24H"/"7D" are locale-neutral shorthand; only "All Time" translates.
+// “1H/24H/7D” 是各语言通用的简写，只有 “All Time” 需要翻译。
+const alertTimeWindowOptions: Array<{ id: AlertTimeWindow; labelKey: TranslationKey | null; hours: number | null }> = [
+  { id: "all", labelKey: "alerts.window.allTime", hours: null },
+  { id: "1h", labelKey: null, hours: 1 },
+  { id: "24h", labelKey: null, hours: 24 },
+  { id: "7d", labelKey: null, hours: 24 * 7 },
 ];
 
 const processToneMap: Record<ProcessStatus, "online" | "warning" | "offline" | "starting"> = {
@@ -172,11 +184,11 @@ const processTextClassMap: Record<ProcessStatus, string> = {
 
 const lifecycleActionMeta: Record<
   Exclude<ProcessAction, "scan" | "kill">,
-  { label: string; hex: string; icon: typeof Play }
+  { labelKey: TranslationKey; hex: string; icon: typeof Play }
 > = {
-  start: { label: "Start", hex: accent.green, icon: Play },
-  stop: { label: "Stop", hex: accent.rose, icon: Square },
-  restart: { label: "Restart", hex: accent.purple, icon: RefreshCw },
+  start: { labelKey: "action.start", hex: accent.green, icon: Play },
+  stop: { labelKey: "action.stop", hex: accent.rose, icon: Square },
+  restart: { labelKey: "action.restart", hex: accent.purple, icon: RefreshCw },
 };
 
 const severityToneMap: Record<AlertSeverity, "online" | "warning" | "offline"> = {
@@ -199,7 +211,10 @@ const workspaceStorageKey = "mewl.workspace.v1";
 const processLogTailLimit = 10;
 const unifiedLogLimit = 1200;
 const logRenderWindow = 400;
-const defaultCommandState = "Ready to manage local services, ports, and runtime pressure.";
+// Default command-strip message. Resolved through t() at usage sites so the
+// initial value and resets follow the active locale.
+// 命令栏默认消息。在使用处通过 t() 解析，初始值与重置都会跟随当前语言。
+const defaultCommandStateKey = "command.ready" satisfies TranslationKey;
 const appIconUrl = `${import.meta.env.BASE_URL}icon.png`;
 
 const managedServiceColorMap: Record<ManagedServiceColor, string> = {
@@ -211,13 +226,13 @@ const managedServiceColorMap: Record<ManagedServiceColor, string> = {
   amber: accent.amber,
 };
 
-const managedServiceColorOptions: Array<{ id: ManagedServiceColor; label: string }> = [
-  { id: "default", label: "White" },
-  { id: "rose", label: "Rose" },
-  { id: "purple", label: "Purple" },
-  { id: "cyan", label: "Cyan" },
-  { id: "green", label: "Green" },
-  { id: "amber", label: "Amber" },
+const managedServiceColorOptions: Array<{ id: ManagedServiceColor; labelKey: TranslationKey }> = [
+  { id: "default", labelKey: "color.white" },
+  { id: "rose", labelKey: "color.rose" },
+  { id: "purple", labelKey: "color.purple" },
+  { id: "cyan", labelKey: "color.cyan" },
+  { id: "green", labelKey: "color.green" },
+  { id: "amber", labelKey: "color.amber" },
 ];
 
 const managedServiceIconMap: Record<ManagedServiceIcon, typeof Server> = {
@@ -230,85 +245,80 @@ const managedServiceIconMap: Record<ManagedServiceIcon, typeof Server> = {
   sparkles: Sparkles,
 };
 
-const managedServiceIconOptions: Array<{ id: ManagedServiceIcon; label: string }> = [
-  { id: "server", label: "Server" },
-  { id: "terminal", label: "Terminal" },
-  { id: "globe", label: "Globe" },
-  { id: "database", label: "Database" },
-  { id: "bot", label: "Bot" },
-  { id: "workflow", label: "Workflow" },
-  { id: "sparkles", label: "Sparkles" },
+const managedServiceIconOptions: Array<{ id: ManagedServiceIcon; labelKey: TranslationKey }> = [
+  { id: "server", labelKey: "icon.server" },
+  { id: "terminal", labelKey: "icon.terminal" },
+  { id: "globe", labelKey: "icon.globe" },
+  { id: "database", labelKey: "icon.database" },
+  { id: "bot", labelKey: "icon.bot" },
+  { id: "workflow", labelKey: "icon.workflow" },
+  { id: "sparkles", labelKey: "icon.sparkles" },
 ];
 
 const managedServiceKindOptions: Array<{
   id: ManagedServiceKind;
-  label: string;
-  detail: string;
+  labelKey: TranslationKey;
+  detailKey: TranslationKey;
 }> = [
   {
     id: "command",
-    label: "Command",
-    detail: "Use for standard binaries, package scripts, workers, and local daemons.",
+    labelKey: "kind.command",
+    detailKey: "kind.command.detail",
   },
   {
     id: "script",
-    label: "Script",
-    detail: "Use for exact launch and teardown scripts, including direct file paths.",
+    labelKey: "kind.script",
+    detailKey: "kind.script.detail",
   },
   {
     id: "docker",
-    label: "Docker",
-    detail: "Use for Docker Compose or docker run flows with container-oriented stop behavior.",
+    labelKey: "kind.docker",
+    detailKey: "kind.docker.detail",
   },
 ];
 
-const managedKindBadgeMap: Record<ManagedServiceKind, string> = {
-  command: "command",
-  script: "script",
-  docker: "docker",
-};
-
+// Per-kind editor copy. Command placeholders ("npm run dev") are executable
+// examples, not prose, so they stay as literals.
+// 各服务模式的编辑器文案。命令占位符（如 "npm run dev"）是可执行的示例
+// 而非叙述文字，因此保持字面量。
 const managedKindCopy: Record<
   ManagedServiceKind,
   {
-    startLabel: string;
-    stopLabel: string;
-    restartLabel: string;
+    startLabelKey: TranslationKey;
+    stopLabelKey: TranslationKey;
+    restartLabelKey: TranslationKey;
     startPlaceholder: string;
-    stopPlaceholder: string;
-    restartPlaceholder: string;
-    guidance: string;
+    stopPlaceholderKey: TranslationKey;
+    restartPlaceholderKey: TranslationKey;
+    guidanceKey: TranslationKey;
   }
 > = {
   command: {
-    startLabel: "Start Command",
-    stopLabel: "Stop Command",
-    restartLabel: "Restart Command",
+    startLabelKey: "kind.command.startLabel",
+    stopLabelKey: "kind.command.stopLabel",
+    restartLabelKey: "kind.command.restartLabel",
     startPlaceholder: "npm run dev",
-    stopPlaceholder: "Optional. Leave blank to stop by tracked pid.",
-    restartPlaceholder: "Optional. Leave blank for stop/start.",
-    guidance:
-      "Best for package scripts, local binaries, background workers, and long-running dev servers.",
+    stopPlaceholderKey: "kind.command.stopPlaceholder",
+    restartPlaceholderKey: "kind.command.restartPlaceholder",
+    guidanceKey: "kind.command.guidance",
   },
   script: {
-    startLabel: "Launch Script",
-    stopLabel: "Teardown Script",
-    restartLabel: "Restart Script",
+    startLabelKey: "kind.script.startLabel",
+    stopLabelKey: "kind.script.stopLabel",
+    restartLabelKey: "kind.script.restartLabel",
     startPlaceholder: "./scripts/dev.sh --watch",
-    stopPlaceholder: "Optional. Example: ./scripts/stop-dev.sh",
-    restartPlaceholder: "Optional. Example: ./scripts/restart-dev.sh",
-    guidance:
-      "Direct script paths are now first-class. Mewl resolves common script extensions without requiring shell chaining.",
+    stopPlaceholderKey: "kind.script.stopPlaceholder",
+    restartPlaceholderKey: "kind.script.restartPlaceholder",
+    guidanceKey: "kind.script.guidance",
   },
   docker: {
-    startLabel: "Docker Start Flow",
-    stopLabel: "Docker Stop Flow",
-    restartLabel: "Docker Restart Flow",
+    startLabelKey: "kind.docker.startLabel",
+    stopLabelKey: "kind.docker.stopLabel",
+    restartLabelKey: "kind.docker.restartLabel",
     startPlaceholder: "docker compose up api",
-    stopPlaceholder: "Optional. Example: docker compose stop api",
-    restartPlaceholder: "Optional. Example: docker compose restart api",
-    guidance:
-      "Use explicit Docker commands when you have them. If stop is blank, Mewl can derive a safe Docker stop flow for common compose and named-container launches.",
+    stopPlaceholderKey: "kind.docker.stopPlaceholder",
+    restartPlaceholderKey: "kind.docker.restartPlaceholder",
+    guidanceKey: "kind.docker.guidance",
   },
 };
 
@@ -330,22 +340,78 @@ const unifiedLogLevelHexMap: Record<UnifiedLogLevel, string> = {
   trace: "#94a3b8",
 };
 
-const unifiedLogLevelOptions: Array<{ id: "all" | UnifiedLogLevel; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "error", label: "Error" },
-  { id: "warn", label: "Warn" },
-  { id: "info", label: "Info" },
-  { id: "success", label: "Success" },
-  { id: "debug", label: "Debug" },
+const unifiedLogLevelOptions: Array<{ id: "all" | UnifiedLogLevel; labelKey: TranslationKey }> = [
+  { id: "all", labelKey: "filters.all" },
+  { id: "error", labelKey: "level.error" },
+  { id: "warn", labelKey: "level.warn" },
+  { id: "info", labelKey: "level.info" },
+  { id: "success", labelKey: "level.success" },
+  { id: "debug", labelKey: "level.debug" },
 ];
 
-const logWorkspaceTabs: Array<{ id: LogWorkspaceTab; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "mewl", label: "Mewl" },
-  { id: "processes", label: "Processes" },
-  { id: "containers", label: "Containers" },
-  { id: "system", label: "System" },
+// "Mewl" is the product name and stays untranslated.
+// “Mewl” 是产品名，不做翻译。
+const logWorkspaceTabs: Array<{ id: LogWorkspaceTab; labelKey: TranslationKey }> = [
+  { id: "all", labelKey: "filters.all" },
+  { id: "mewl", labelKey: "logs.tab.mewl" },
+  { id: "processes", labelKey: "logs.tab.processes" },
+  { id: "containers", labelKey: "logs.tab.containers" },
+  { id: "system", labelKey: "logs.tab.system" },
 ];
+
+// Display labels for values that arrive as raw enum strings from the runtime
+// (process/port status, severity, log levels, ownership tags, kind badges).
+// 针对运行时以枚举字符串到达的取值（进程/端口状态、严重级别、日志级别、
+// 归属标签、服务类型徽章）的展示文案映射。
+const processStatusLabelKeys: Record<ProcessStatus, TranslationKey> = {
+  running: "status.running",
+  degraded: "status.degraded",
+  stopped: "status.stopped",
+  starting: "status.starting",
+};
+
+const portStatusLabelKeys: Record<PortStatus, TranslationKey> = {
+  bound: "port.status.bound",
+  booting: "port.status.booting",
+  standby: "port.status.standby",
+  conflict: "port.status.conflict",
+};
+
+const exposureLabelKeys: Record<PortBinding["exposure"], TranslationKey> = {
+  public: "exposure.public",
+  local: "exposure.local",
+  internal: "exposure.internal",
+};
+
+const severityLabelKeys: Record<AlertSeverity, TranslationKey> = {
+  info: "severity.info",
+  warning: "severity.warning",
+  critical: "severity.critical",
+};
+
+const unifiedLogLevelLabelKeys: Record<UnifiedLogLevel, TranslationKey> = {
+  fatal: "level.fatal",
+  error: "level.error",
+  warn: "level.warn",
+  log: "level.log",
+  info: "level.info",
+  success: "level.success",
+  debug: "level.debug",
+  trace: "level.trace",
+};
+
+const processLogLevelLabelKeys: Record<ProcessLogLevel, TranslationKey> = {
+  info: "level.info",
+  debug: "level.debug",
+  warning: "level.warning",
+  error: "level.error",
+};
+
+const restartPolicyLabelKeys: Record<ManagedProcess["restartPolicy"], TranslationKey> = {
+  manual: "policy.manual",
+  "on-failure": "policy.on-failure",
+  always: "policy.always",
+};
 
 const formatLogStamp = () =>
   new Intl.DateTimeFormat("en-US", {
@@ -481,7 +547,9 @@ function readPersistedWorkspace(): PersistedWorkspaceState | null {
 
   const parsed: unknown = JSON.parse(rawValue);
   if (!isRecord(parsed) || parsed.version !== 1) {
-    throw new Error("Saved workspace data is from an incompatible version.");
+    // Localized so the failure panel re-renders on locale switches.
+    // 本地化错误，确保失败面板在切换语言时随之刷新。
+    throw new MewlLocalizedError("error.incompatibleWorkspace");
   }
 
   const preferences = isRecord(parsed.preferences) ? parsed.preferences : {};
@@ -520,7 +588,7 @@ function readPersistedWorkspace(): PersistedWorkspaceState | null {
         : [],
       logs: Array.isArray(runtime.logs) ? (runtime.logs as UnifiedLogEvent[]) : [],
       commandState:
-        typeof runtime.commandState === "string" ? runtime.commandState : defaultCommandState,
+        typeof runtime.commandState === "string" ? runtime.commandState : undefined,
     },
   };
 }
@@ -534,8 +602,13 @@ function writePersistedWorkspace(value: PersistedWorkspaceState) {
 }
 
 function App() {
+  const { locale, setLocale, t } = useI18n();
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>("loading");
-  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  // Holds the raw thrown value so error copy re-resolves through t() whenever
+  // the locale changes, instead of freezing the message at catch time.
+  // 保存原始抛出值，使错误文案在语言切换时重新通过 t() 解析，
+  // 而不是在捕获时就固化下来。
+  const [runtimeError, setRuntimeError] = useState<unknown>(null);
   const [activeView, setActiveView] = useState<WorkspaceView>("overview");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -567,13 +640,29 @@ function App() {
   const [logSourceFilter, setLogSourceFilter] = useState("all");
   const [logFollowTail, setLogFollowTail] = useState(true);
   const [logsPaused, setLogsPaused] = useState(false);
-  const [commandState, setCommandState] = useState(defaultCommandState);
+  const [commandState, setCommandState] = useState(() => t(defaultCommandStateKey));
   const [isPending, startActionTransition] = useTransition();
   const pausedLogBufferRef = useRef<UnifiedLogEvent[]>([]);
   const logsViewportRef = useRef<HTMLDivElement | null>(null);
   const runtimeSource = getRuntimeSourceDescriptor();
   const isLiveElectronRuntime = runtimeSource.id === "electron";
   const managedKindMeta = managedKindCopy[managedDraft.kind];
+
+  // Render-time error localization: MewlLocalizedError carries a translation
+  // key; Error messages from the Electron bridge arrive already localized.
+  // 渲染时错误本地化：MewlLocalizedError 携带翻译键；来自 Electron 桥接的
+  // Error 消息已在主进程完成本地化。
+  const describeError = (error: unknown, fallbackKey: TranslationKey): string => {
+    if (error instanceof MewlLocalizedError) {
+      return t(error.messageKey);
+    }
+
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+
+    return t(fallbackKey);
+  };
 
   const appendUnifiedLogs = (events: UnifiedLogEvent[]) => {
     if (events.length === 0) {
@@ -623,6 +712,12 @@ function App() {
       setRuntimeError(null);
 
       try {
+        // Sync the locale before the first snapshot so bridge-generated
+        // alerts, logs, and labels are produced in the active language.
+        // 首次快照前先同步语言，确保桥接生成的告警、日志与标签
+        // 使用当前语言生成。
+        await window.mewlHost?.setLocale?.(locale);
+
         const snapshot = await hydrateRuntimeSnapshot();
         if (cancelled) {
           return;
@@ -646,7 +741,7 @@ function App() {
         setAutomationRules(hydratedAutomationRules);
         setAutomationHistory(hydratedAutomationHistory);
         setLogs(persisted?.runtime.logs?.length ? mergeLogEvents(persisted.runtime.logs, snapshot.logs) : snapshot.logs);
-        setCommandState(persisted?.runtime.commandState ?? defaultCommandState);
+        setCommandState(persisted?.runtime.commandState ?? t(defaultCommandStateKey));
         setActiveView(persisted?.preferences.activeView ?? "overview");
         setQuery(persisted?.preferences.query ?? "");
         setStatusFilter(persisted?.preferences.statusFilter ?? "all");
@@ -667,11 +762,7 @@ function App() {
         }
 
         setRuntimeStatus("error");
-        setRuntimeError(
-          error instanceof Error
-            ? error.message
-            : "Mewl could not restore the workspace session.",
-        );
+        setRuntimeError(error);
       }
     };
 
@@ -763,6 +854,7 @@ function App() {
       })
         .catch(() => {
           // Keep the current dashboard state when a background refresh misses once.
+          // 后台刷新偶发失败时，保留当前仪表盘状态，不清空数据。
         });
     }, 6000);
 
@@ -1002,7 +1094,7 @@ function App() {
         setAutomationRules(snapshot.automationRules);
         setAutomationHistory(snapshot.automationHistory);
         setLogs(snapshot.logs);
-        setCommandState(defaultCommandState);
+        setCommandState(t(defaultCommandStateKey));
         setActiveView("overview");
         setSelectedProcessId(snapshot.processes[0]?.id ?? "");
         setSelectedManagedServiceId(snapshot.processes.find((process) => process.managed)?.id ?? "");
@@ -1011,11 +1103,7 @@ function App() {
       })
       .catch((error) => {
         setRuntimeStatus("error");
-        setRuntimeError(
-          error instanceof Error
-            ? error.message
-            : "Mewl could not reconnect to the Electron desktop bridge.",
-        );
+        setRuntimeError(error);
       });
   };
 
@@ -1135,7 +1223,7 @@ function App() {
     link.download = `mewl-logs-${safeStamp}.ndjson`;
     link.click();
     URL.revokeObjectURL(url);
-    setCommandState(`Exported ${visibleLogs.length} visible log events.`);
+    setCommandState(t("logs.exported", { count: visibleLogs.length }));
   };
 
   const toggleProcessExpanded = (processId: string) => {
@@ -1168,30 +1256,28 @@ function App() {
       const hostAction = window.mewlHost?.performProcessAction;
 
       if (!hostAction) {
-        setCommandState("The Electron bridge is missing its lifecycle action handler.");
+        setCommandState(t("command.bridgeMissingActions"));
         return;
       }
 
       if (action === "kill") {
         if (!targetProcess) {
-          setCommandState("Choose an observed process before requesting a live kill action.");
+          setCommandState(t("command.killChooseFirst"));
           return;
         }
 
         if (targetProcess.managed) {
-          setCommandState(
-            "Kill is reserved for observed live processes. Use the managed service controls for saved services.",
-          );
+          setCommandState(t("command.killManagedRejected"));
           return;
         }
 
         if (targetProcess.pid === null) {
-          setCommandState("That observed process no longer has a live pid to terminate.");
+          setCommandState(t("command.killNoPid"));
           return;
         }
 
         setCommandState(
-          `Terminating observed process ${targetProcess.name} (pid ${targetProcess.pid}) from the Electron bridge.`,
+          t("command.killDispatch", { name: targetProcess.name, pid: targetProcess.pid }),
         );
 
         startActionTransition(async () => {
@@ -1199,11 +1285,7 @@ function App() {
             const result: RuntimeActionResult = await hostAction(action, targetProcess.id);
             applyRuntimeActionResult(result);
           } catch (error) {
-            setCommandState(
-              error instanceof Error
-                ? error.message
-                : "The Electron bridge could not terminate that observed process.",
-            );
+            setCommandState(describeError(error, "command.killFailed"));
           }
         });
 
@@ -1211,22 +1293,17 @@ function App() {
       }
 
       if (action !== "scan" && !targetProcess?.managed) {
-        setCommandState(
-          "Only services registered in mewl.services.json can be started, stopped, or restarted.",
-        );
+        setCommandState(t("command.onlyManaged"));
         return;
       }
 
       setCommandState(
         action === "scan"
-          ? "Refreshing live host services, bindings, and telemetry from Electron."
-          : `${
-              action === "start"
-                ? "Starting"
-                : action === "stop"
-                  ? "Stopping"
-                  : "Restarting"
-            } ${targetProcess?.name ?? "service"} from the Electron bridge.`,
+          ? t("command.scanDispatch")
+          : t("command.actionDispatch", {
+              verb: t(action === "start" ? "verb.start" : action === "stop" ? "verb.stop" : "verb.restart"),
+              name: targetProcess?.name ?? t("command.fallbackServiceName"),
+            }),
       );
 
       startActionTransition(async () => {
@@ -1237,9 +1314,7 @@ function App() {
             setSelectedProcessId(targetProcess.id);
           }
         } catch (error) {
-          setCommandState(
-            error instanceof Error ? error.message : "The Electron bridge could not complete that action.",
-          );
+          setCommandState(describeError(error, "command.actionFailed"));
         }
       });
 
@@ -1247,12 +1322,12 @@ function App() {
     }
 
     if (action === "scan") {
-      setCommandState("Scanning watched bindings and reserved ranges.");
+      setCommandState(t("command.scanLocal"));
 
       if (targetProcess) {
         appendProcessLogs(targetProcess.id, [
           {
-            ...createProcessLogEntry("debug", "Port scan requested from the command strip."),
+            ...createProcessLogEntry("debug", t("command.scanRequested")),
             stream: "stdout",
           },
         ]);
@@ -1267,14 +1342,14 @@ function App() {
               ? {
                   ...createProcessLogEntry(
                     "warning",
-                    `Watch scan still sees ${conflictCount} binding issue${conflictCount === 1 ? "" : "s"} in the reserved range.`,
+                    t("command.scanStillConflicts", { count: conflictCount }),
                   ),
                   stream: "stderr",
                 }
               : {
                   ...createProcessLogEntry(
                     "info",
-                    "Watch scan cleared the reserved bindings with no new collisions.",
+                    t("command.scanClean"),
                   ),
                   stream: "stdout",
                 },
@@ -1282,25 +1357,25 @@ function App() {
         }
 
         pushAlert({
-          title: conflictCount > 0 ? "Port scan found drift" : "Port scan complete",
+          title: t(conflictCount > 0 ? "command.scanAlert.drift.title" : "command.scanAlert.complete.title"),
           detail:
             conflictCount > 0
-              ? `${conflictCount} binding needs attention before the next restart.`
-              : "No collisions were found in the reserved local range.",
+              ? t("command.scanAlert.drift.detail", { count: conflictCount })
+              : t("command.scanAlert.clean.detail"),
           severity: conflictCount > 0 ? "warning" : "info",
           stamp: "now",
         });
         setCommandState(
           conflictCount > 0
-            ? "Port scan finished with collisions to resolve."
-            : "Port scan finished cleanly.",
+            ? t("command.scanDoneConflicts")
+            : t("command.scanDoneClean"),
         );
       });
       return;
     }
 
     if (action === "kill") {
-      setCommandState("Observed process termination is only available from the Electron desktop bridge.");
+      setCommandState(t("command.killDesktopOnly"));
       return;
     }
 
@@ -1309,10 +1384,10 @@ function App() {
     }
 
     if (action === "start" && targetProcess.status === "running") {
-      setCommandState(`${targetProcess.name} is already live.`);
+      setCommandState(t("command.alreadyLive", { name: targetProcess.name }));
       pushAlert({
-        title: "No launch needed",
-        detail: `${targetProcess.name} was already running when the launch command was issued.`,
+        title: t("command.noLaunchNeeded.title"),
+        detail: t("command.noLaunchNeeded.detail", { name: targetProcess.name }),
         severity: "info",
         stamp: "now",
       });
@@ -1320,7 +1395,7 @@ function App() {
     }
 
     if (action === "stop" && targetProcess.status === "stopped") {
-      setCommandState(`${targetProcess.name} is already stopped.`);
+      setCommandState(t("command.alreadyStopped", { name: targetProcess.name }));
       return;
     }
 
@@ -1333,22 +1408,27 @@ function App() {
       {
         ...createProcessLogEntry(
           action === "restart" ? "warning" : "info",
-          action === "start"
-            ? "Boot request accepted by the managed runtime bridge."
-            : action === "stop"
-              ? "Graceful shutdown request queued from the command strip."
-              : "Restart request queued and the process is entering the drain window.",
+          t(
+            action === "start"
+              ? "command.bootAccepted"
+              : action === "stop"
+                ? "command.stopQueued"
+                : "command.restartQueued",
+          ),
         ),
         stream: "stdout",
       },
     ]);
 
     setCommandState(
-      action === "start"
-        ? `Starting ${targetProcess.name}...`
-        : action === "stop"
-          ? `Stopping ${targetProcess.name}...`
-          : `Restarting ${targetProcess.name}...`,
+      t(
+        action === "start"
+          ? "command.starting"
+          : action === "stop"
+            ? "command.stopping"
+            : "command.restarting",
+        { name: targetProcess.name },
+      ),
     );
 
     startActionTransition(async () => {
@@ -1366,9 +1446,9 @@ function App() {
               cpu: 0,
               memory: 72,
               network: 0,
-              uptime: "stopped",
-              lastExit: "Stopped from Mewl",
-              lastHeartbeat: "idle",
+              uptime: t("uptime.stopped"),
+              lastExit: t("command.stopAlert.lastExit"),
+              lastHeartbeat: t("heartbeat.idle"),
             };
           }
 
@@ -1376,8 +1456,8 @@ function App() {
             ...process,
             status: "starting",
             pid: nextPid,
-            uptime: "booting",
-            lastHeartbeat: "booting",
+            uptime: t("heartbeat.booting"),
+            lastHeartbeat: t("heartbeat.booting"),
           };
         }),
       );
@@ -1404,7 +1484,7 @@ function App() {
           if (action === "stop") {
             return {
               ...process,
-              lastHeartbeat: "idle",
+              lastHeartbeat: t("heartbeat.idle"),
             };
           }
 
@@ -1415,13 +1495,13 @@ function App() {
             cpu: Math.max(8, process.cpu - 4),
             memory: Math.max(120, process.memory - 32),
             network: Math.max(0, process.network - 3),
-            uptime: "just now",
+            uptime: t("uptime.justNow"),
             restarts: action === "restart" ? process.restarts + 1 : process.restarts,
             lastExit:
               action === "restart"
-                ? "Graceful restart triggered from Mewl"
+                ? t("command.restartAlert.lastExit")
                 : process.lastExit,
-            lastHeartbeat: "just now",
+            lastHeartbeat: t("uptime.justNow"),
           };
         }),
       );
@@ -1441,11 +1521,14 @@ function App() {
         {
           ...createProcessLogEntry(
             "info",
-            action === "start"
-              ? `Process boot completed and pid ${nextPid} is now being tracked.`
-              : action === "stop"
-                ? "Process drained successfully and watched bindings were parked."
-                : `Restart finished and pid ${nextPid} is now serving traffic.`,
+            t(
+              action === "start"
+                ? "command.bootCompleted"
+                : action === "stop"
+                  ? "command.drainComplete"
+                  : "command.restartCompleted",
+              action === "stop" ? undefined : { pid: nextPid },
+            ),
           ),
           stream: "stdout",
         },
@@ -1454,7 +1537,7 @@ function App() {
               {
                 ...createProcessLogEntry(
                   "warning",
-                  `Binding watch still reports ${processConflictCount} conflict${processConflictCount === 1 ? "" : "s"} after the lifecycle action.`,
+                  t("command.bindingConflicts", { count: processConflictCount }),
                 ),
                 stream: "stderr" as const,
               },
@@ -1465,25 +1548,28 @@ function App() {
       pushAlert({
         title:
           action === "start"
-            ? `${targetProcess.name} launched`
+            ? t("command.launchAlert.title", { name: targetProcess.name })
             : action === "stop"
-              ? `${targetProcess.name} stopped`
-              : `${targetProcess.name} restarted`,
+              ? t("command.stopAlert.title", { name: targetProcess.name })
+              : t("command.restartAlert.title", { name: targetProcess.name }),
         detail:
           action === "start"
-            ? "Service boot completed and watched ports were rebound."
+            ? t("command.launchAlert.detail")
             : action === "stop"
-              ? "Ports were parked and the process was taken out of rotation."
-              : "Lifecycle action completed and bindings were restored.",
+              ? t("command.stopAlert.detail")
+              : t("command.restartAlert.detail"),
         severity: "info",
         stamp: "now",
       });
       setCommandState(
-        action === "start"
-          ? `${targetProcess.name} is running.`
-          : action === "stop"
-            ? `${targetProcess.name} is stopped.`
-            : `${targetProcess.name} restart completed.`,
+        t(
+          action === "start"
+            ? "command.resultRunning"
+            : action === "stop"
+              ? "command.resultStopped"
+              : "command.resultRestarted",
+          { name: targetProcess.name },
+        ),
       );
     });
   };
@@ -1491,9 +1577,9 @@ function App() {
   const renderManagedLifecycleIcons = (process: ManagedProcess) => (
     <div className="flex items-center gap-2">
       {(["start", "stop", "restart"] as const).map((action) => {
-        const { label, hex, icon } = lifecycleActionMeta[action];
+        const { labelKey, hex, icon } = lifecycleActionMeta[action];
         return renderManagedActionButton({
-          label,
+          label: t(labelKey),
           icon,
           hex,
           disabled: !canControlProcess(process) || isPending || runtimeStatus !== "ready",
@@ -1508,21 +1594,21 @@ function App() {
 
   const renderProcessOwnershipTag = (process: ManagedProcess) => (
     <span className="rounded-full border border-white/8 bg-black/18 px-3 py-1 text-[0.68rem] uppercase tracking-[0.2em] text-white/48">
-      {process.managed ? "managed" : "observed"}
+      {process.managed ? t("tag.managed") : t("tag.observed")}
     </span>
   );
 
   const renderManagedReviewTag = (process: ManagedProcess) =>
     process.review?.needsReview ? (
       <span className="rounded-full border border-amber-300/18 bg-amber-400/10 px-3 py-1 text-[0.68rem] uppercase tracking-[0.2em] text-amber-100/76">
-        needs cleanup
+        {t("tag.needsCleanup")}
       </span>
     ) : null;
 
   const renderManagedKindTag = (process: ManagedProcess) =>
     process.managed ? (
       <span className="rounded-full border border-white/8 bg-black/18 px-3 py-1 text-[0.68rem] uppercase tracking-[0.2em] text-white/48">
-        {managedKindBadgeMap[process.kind]}
+        {t(`kind.${process.kind}` as TranslationKey)}
       </span>
     ) : null;
 
@@ -1559,7 +1645,7 @@ function App() {
 
   const beginManagedDraftFromObservedProcess = (process: ManagedProcess) => {
     if (process.managed) {
-      setCommandState("That process is already managed. Open it from the Managed workspace to edit the saved definition.");
+      setCommandState(t("command.alreadyManaged"));
       changeView("managed");
       openManagedEditModal(process);
       return;
@@ -1567,9 +1653,7 @@ function App() {
 
     openManagedCreateModal(process);
     changeView("managed");
-    setCommandState(
-      `Prefilled a managed draft from observed process ${process.name}. Review the commands before saving it to Mewl.`,
-    );
+    setCommandState(t("command.prefilledDraft", { name: process.name }));
   };
 
   const saveManagedDraft = () => {
@@ -1578,23 +1662,25 @@ function App() {
     }
 
     if (!managedDraft.name.trim()) {
-      setCommandState("Managed services need a name before they can be saved.");
+      setCommandState(t("command.nameRequired"));
       return;
     }
 
     if (!managedDraft.startCommand.trim()) {
       setCommandState(
-        managedDraft.kind === "script"
-          ? "Script-based services need a launch script or command before they can be saved."
-          : managedDraft.kind === "docker"
-            ? "Docker-managed services need a start flow before they can be saved."
-            : "Managed services need a start command before they can be saved.",
+        t(
+          managedDraft.kind === "script"
+            ? "command.startRequired.script"
+            : managedDraft.kind === "docker"
+              ? "command.startRequired.docker"
+              : "command.startRequired.command",
+        ),
       );
       return;
     }
 
     if (!managedDraft.cwd.trim()) {
-      setCommandState("Managed services need a working directory before they can be saved.");
+      setCommandState(t("command.cwdRequired"));
       return;
     }
 
@@ -1606,7 +1692,7 @@ function App() {
         (managedEditorMode === "create" && !createManagedService) ||
         (managedEditorMode === "edit" && !updateManagedService)
       ) {
-        setCommandState("The Electron bridge is missing its managed-service editor handlers.");
+        setCommandState(t("command.editorHandlersMissing"));
         return;
       }
 
@@ -1618,7 +1704,7 @@ function App() {
               : await updateManagedService?.(selectedManagedServiceId, managedDraft);
 
           if (!result) {
-            setCommandState("The desktop bridge did not return a managed-service result.");
+            setCommandState(t("command.editorNoResult"));
             return;
           }
 
@@ -1639,17 +1725,13 @@ function App() {
           );
           setManagedEditorOpen(false);
         } catch (error) {
-          setCommandState(
-            error instanceof Error
-              ? error.message
-              : "The desktop bridge could not save the managed service.",
-          );
+          setCommandState(describeError(error, "command.saveFailed"));
         }
       });
       return;
     }
 
-    setCommandState("Managed services can only be edited from the Electron desktop bridge.");
+    setCommandState(t("command.editorDesktopOnly"));
   };
 
   const confirmManagedReview = (processId: string) => {
@@ -1661,7 +1743,7 @@ function App() {
       const updateManagedService = window.mewlHost?.updateManagedService;
 
       if (!updateManagedService) {
-        setCommandState("The Electron bridge is missing its managed-service editor handlers.");
+        setCommandState(t("command.editorHandlersMissing"));
         return;
       }
 
@@ -1673,17 +1755,13 @@ function App() {
           applyRuntimeActionResult(result);
           focusManagedServiceFromSnapshot(result.snapshot, processId);
         } catch (error) {
-          setCommandState(
-            error instanceof Error
-              ? error.message
-              : "The desktop bridge could not confirm that cleanup review.",
-          );
+          setCommandState(describeError(error, "command.reviewConfirmFailed"));
         }
       });
       return;
     }
 
-    setCommandState("Managed cleanup review can only be confirmed from the Electron desktop bridge.");
+    setCommandState(t("command.reviewDesktopOnly"));
   };
 
   const removeManagedDraft = () => {
@@ -1695,7 +1773,7 @@ function App() {
       const removeManagedService = window.mewlHost?.removeManagedService;
 
       if (!removeManagedService) {
-        setCommandState("The Electron bridge is missing its managed-service removal handler.");
+        setCommandState(t("command.removeHandlersMissing"));
         return;
       }
 
@@ -1707,17 +1785,13 @@ function App() {
           setManagedDraft(createEmptyManagedDraft());
           setManagedEditorOpen(false);
         } catch (error) {
-          setCommandState(
-            error instanceof Error
-              ? error.message
-              : "The desktop bridge could not remove the managed service.",
-          );
+          setCommandState(describeError(error, "command.removeFailed"));
         }
       });
       return;
     }
 
-    setCommandState("Managed services can only be removed from the Electron desktop bridge.");
+    setCommandState(t("command.removeDesktopOnly"));
   };
 
   const renderManagedActionButton = ({
@@ -1754,7 +1828,7 @@ function App() {
     return (
       <div className={`flex flex-wrap items-center gap-3 ${compact ? "" : "mt-5"}`}>
         <ShinyButton
-          label="Create Managed Draft"
+          label={t("action.createManagedDraft")}
           hex={accent.rose}
           icon={Sparkles}
           subtle
@@ -1762,7 +1836,7 @@ function App() {
           disabled={runtimeStatus !== "ready"}
         />
         <ShinyButton
-          label="Kill Observed PID"
+          label={t("action.killObservedPid")}
           hex={accent.rose}
           icon={Trash2}
           subtle
@@ -1780,7 +1854,7 @@ function App() {
       const applyAutomationRule = window.mewlHost?.applyAutomationRule;
 
       if (!applyAutomationRule) {
-        setCommandState("This automation toggle is not wired to a live desktop setting yet.");
+        setCommandState(t("command.ruleNotWired"));
         return;
       }
 
@@ -1789,9 +1863,7 @@ function App() {
           const result = await applyAutomationRule(ruleId, nextValue);
           applyRuntimeActionResult(result);
         } catch (error) {
-          setCommandState(
-            error instanceof Error ? error.message : "The desktop bridge could not save that rule.",
-          );
+          setCommandState(describeError(error, "command.ruleSaveFailed"));
         }
       });
       return;
@@ -1801,7 +1873,11 @@ function App() {
       current.map((item) => (item.id === ruleId ? { ...item, enabled: nextValue } : item)),
     );
     if (rule) {
-      setCommandState(`${nextValue ? "Enabled" : "Disabled"} ${rule.title.toLowerCase()}.`);
+      setCommandState(
+        t(nextValue ? "command.ruleEnabled" : "command.ruleDisabled", {
+          rule: rule.title,
+        }),
+      );
     }
   };
 
@@ -1866,7 +1942,7 @@ function App() {
                   : "border-white/8 bg-black/18 text-white/42 hover:text-white/72"
               }`}
             >
-              {option.label}
+              {t(option.labelKey)}
             </button>
           ))}
         </div>
@@ -1876,7 +1952,7 @@ function App() {
             onChange={(event) => setAlertServiceFilter(event.target.value)}
             className="rounded-full border border-white/8 bg-black/18 px-3 py-2 text-[0.68rem] uppercase tracking-[0.22em] text-white/72 outline-none"
           >
-            <option value="all">All Services</option>
+            <option value="all">{t("alerts.allServices")}</option>
             {alertServiceOptions.map((serviceName) => (
               <option key={serviceName} value={serviceName}>
                 {serviceName}
@@ -1896,7 +1972,7 @@ function App() {
                     : "border-white/8 bg-black/18 text-white/42 hover:text-white/72"
                 }`}
               >
-                {option.label}
+                {option.labelKey ? t(option.labelKey) : option.id.toUpperCase()}
               </button>
             ))}
           </div>
@@ -1905,9 +1981,9 @@ function App() {
 
       {filteredAlerts.length === 0 ? (
         <div className="rounded-[22px] border border-white/8 bg-[#10151c]/92 px-4 py-5">
-          <p className="text-sm font-semibold text-white/86">No fresh alerts</p>
+          <p className="text-sm font-semibold text-white/86">{t("alerts.empty.title")}</p>
           <p className="mt-2 text-sm text-white/52">
-            The current alert filters do not match any items in the latest runtime feed.
+            {t("alerts.empty.detail")}
           </p>
         </div>
       ) : null}
@@ -1932,7 +2008,10 @@ function App() {
           <div className="flex items-center justify-between gap-3">
             <div className="space-y-2">
               <div className="flex items-center gap-3">
-                <StatusPill tone={severityToneMap[item.severity]} label={item.severity} />
+                <StatusPill
+                  tone={severityToneMap[item.severity]}
+                  label={t(severityLabelKeys[item.severity])}
+                />
                 <p className="text-xs uppercase tracking-[0.22em] text-white/32">{item.stamp}</p>
                 {item.serviceName ? (
                   <p className="text-xs uppercase tracking-[0.22em] text-white/32">
@@ -1963,7 +2042,7 @@ function App() {
       <section className={panelClass}>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-white/42">Inspector</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/42">{t("inspector.eyebrow")}</p>
             <h3 className="mt-2 text-2xl font-semibold text-white">{selectedProcess.name}</h3>
           </div>
           <div className="grid size-11 place-items-center rounded-[20px] border border-white/10 bg-black/18">
@@ -1972,11 +2051,14 @@ function App() {
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <StatusPill tone={processToneMap[selectedProcess.status]} label={selectedProcess.status} />
+          <StatusPill
+            tone={processToneMap[selectedProcess.status]}
+            label={t(processStatusLabelKeys[selectedProcess.status])}
+          />
           {renderProcessOwnershipTag(selectedProcess)}
           {renderManagedKindTag(selectedProcess)}
           <span className="rounded-full border border-white/8 bg-black/18 px-3 py-1 text-xs uppercase tracking-[0.2em] text-white/48">
-            pid {selectedProcess.pid ?? "none"}
+            pid {selectedProcess.pid ?? t("field.none")}
           </span>
         </div>
 
@@ -1984,10 +2066,10 @@ function App() {
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {[
-            ["Runtime", selectedProcess.runtime],
-            ["Uptime", selectedProcess.uptime],
-            ["Restarts", `${selectedProcess.restarts}`],
-            ["Last Pulse", selectedProcess.lastHeartbeat],
+            [t("field.runtime"), selectedProcess.runtime],
+            [t("field.uptime"), selectedProcess.uptime],
+            [t("field.restarts"), `${selectedProcess.restarts}`],
+            [t("field.lastPulse"), selectedProcess.lastHeartbeat],
           ].map(([label, value]) => (
             <div key={label} className="rounded-[22px] border border-white/8 bg-black/18 px-4 py-4">
               <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">{label}</p>
@@ -1997,12 +2079,12 @@ function App() {
         </div>
 
         <div className="mt-5 rounded-[24px] border border-white/8 bg-[#0f141b]/94 p-4">
-          <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">Last Exit</p>
+          <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">{t("field.lastExit")}</p>
           <p className="mt-2 text-sm text-white/76">{selectedProcess.lastExit}</p>
         </div>
 
         <div className="mt-5 rounded-[24px] border border-white/8 bg-[#0f141b]/94 p-4">
-          <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">Launch Command</p>
+          <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">{t("field.launchCommand")}</p>
           <p className="mt-2 font-mono text-sm text-white/80">{selectedProcess.command}</p>
           <p className="mt-3 font-mono text-xs text-white/42">{selectedProcess.cwd}</p>
         </div>
@@ -2019,7 +2101,7 @@ function App() {
             ))
           ) : (
             <span className="rounded-full border border-white/8 bg-black/18 px-3 py-1 text-xs uppercase tracking-[0.2em] text-white/48">
-              no ports reserved
+              {t("inspector.noPorts")}
             </span>
           )}
         </div>
@@ -2027,26 +2109,24 @@ function App() {
         {!selectedProcess.managed ? (
           <div className="mt-5 rounded-[24px] border border-rose-400/16 bg-rose-500/8 p-4">
             <p className="text-[0.72rem] uppercase tracking-[0.22em] text-rose-100/72">
-              Observed Only
+              {t("inspector.observedOnly.title")}
             </p>
             <p className="mt-2 text-sm text-white/62">
-              This row reflects a live host process. Creating a managed draft will prefill the
-              editor from what Mewl can observe right now, while kill will terminate the current
-              pid without changing the managed catalog.
+              {t("inspector.observedOnly.detail")}
             </p>
             {renderObservedActions(selectedProcess)}
           </div>
         ) : null}
 
         <div className="mt-5 grid gap-3 lg:grid-cols-3">
-          <HologramProgress label="CPU Pressure" value={selectedProcess.cpu} hex={accent.amber} />
+          <HologramProgress label={t("inspector.cpuPressure")} value={selectedProcess.cpu} hex={accent.amber} />
           <HologramProgress
-            label="Memory Footprint"
+            label={t("inspector.memoryFootprint")}
             value={Math.min(100, Math.round((selectedProcess.memory / 1200) * 100))}
             hex={accent.cyan}
           />
           <HologramProgress
-            label="Network Load"
+            label={t("inspector.networkLoad")}
             value={Math.min(100, selectedProcess.network * 2)}
             hex={accent.green}
           />
@@ -2057,7 +2137,7 @@ function App() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">stdout</p>
-                <p className="mt-2 text-lg font-semibold text-white">Recent output</p>
+                <p className="mt-2 text-lg font-semibold text-white">{t("inspector.recentOutput")}</p>
               </div>
               <Terminal size={18} className="text-emerald-300" />
             </div>
@@ -2076,7 +2156,7 @@ function App() {
                       <p
                         className={`text-[0.68rem] font-semibold uppercase tracking-[0.2em] ${logLevelTextClassMap[entry.level]}`}
                       >
-                        {entry.level}
+                        {t(processLogLevelLabelKeys[entry.level])}
                       </p>
                     </div>
                     <p className="mt-2 font-mono text-sm text-white/78">{entry.text}</p>
@@ -2084,7 +2164,7 @@ function App() {
                 ))
               ) : (
                 <div className="rounded-[20px] border border-dashed border-white/10 bg-black/18 px-4 py-5 text-sm text-white/48">
-                  No stdout lines have been recorded for this process yet.
+                  {t("inspector.noStdout")}
                 </div>
               )}
             </div>
@@ -2094,7 +2174,7 @@ function App() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">stderr</p>
-                <p className="mt-2 text-lg font-semibold text-white">Recent issues</p>
+                <p className="mt-2 text-lg font-semibold text-white">{t("inspector.recentIssues")}</p>
               </div>
               <Terminal size={18} className="text-rose-300" />
             </div>
@@ -2113,7 +2193,7 @@ function App() {
                       <p
                         className={`text-[0.68rem] font-semibold uppercase tracking-[0.2em] ${logLevelTextClassMap[entry.level]}`}
                       >
-                        {entry.level}
+                        {t(processLogLevelLabelKeys[entry.level])}
                       </p>
                     </div>
                     <p className="mt-2 font-mono text-sm text-white/78">{entry.text}</p>
@@ -2121,7 +2201,7 @@ function App() {
                 ))
               ) : (
                 <div className="rounded-[20px] border border-dashed border-white/10 bg-black/18 px-4 py-5 text-sm text-white/48">
-                  No stderr lines are waiting right now.
+                  {t("inspector.noStderr")}
                 </div>
               )}
             </div>
@@ -2135,25 +2215,25 @@ function App() {
     <>
       <section className="grid gap-4 xl:grid-cols-3">
         <SugarCard
-          title="Services"
+          title={t("overview.services")}
           value={`${activeCount}/${processes.length}`}
-          detail={`${degradedCount} need attention`}
+          detail={t("overview.servicesDetail", { count: degradedCount })}
           hex={accent.green}
           icon={Server}
           status={degradedCount > 0 ? "warning" : "online"}
         />
         <SugarCard
-          title="Open Ports"
+          title={t("overview.openPorts")}
           value={`${openPortCount}`}
-          detail={`${publicPortCount} public bindings`}
+          detail={t("overview.publicBindings", { count: publicPortCount })}
           hex={accent.cyan}
           icon={Waypoints}
           status={conflictCount > 0 ? "warning" : "online"}
         />
         <SugarCard
-          title="Watchers"
+          title={t("overview.watchers")}
           value={`${watchedCount}`}
-          detail={`${autoStartCount} autostart enabled`}
+          detail={t("overview.autostartEnabled", { count: autoStartCount })}
           hex={accent.purple}
           icon={ShieldCheck}
           status="online"
@@ -2164,10 +2244,10 @@ function App() {
         <div className={`${panelClass} flex h-full flex-col`}>
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-white/42">Processes</p>
-              <h3 className="mt-2 text-xl font-semibold text-white">Running Now</h3>
+              <p className="text-xs uppercase tracking-[0.24em] text-white/42">{t("overview.processes")}</p>
+              <h3 className="mt-2 text-xl font-semibold text-white">{t("overview.runningNow")}</h3>
             </div>
-            <StatusPill tone="online" label={`${previewProcesses.length} shown`} />
+            <StatusPill tone="online" label={t("overview.shownCount", { count: previewProcesses.length })} />
           </div>
 
           <div className="mt-5 flex-1 space-y-3">
@@ -2192,23 +2272,26 @@ function App() {
                       </p>
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      <StatusPill tone={processToneMap[process.status]} label={process.status} />
+                      <StatusPill
+                        tone={processToneMap[process.status]}
+                        label={t(processStatusLabelKeys[process.status])}
+                      />
                       {renderProcessOwnershipTag(process)}
                     </div>
                   </div>
                   <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
                     <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">Ports</p>
+                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.ports")}</p>
                       <p className="mt-2 text-white/84">
-                        {process.ports.length > 0 ? process.ports.join(", ") : "none"}
+                        {process.ports.length > 0 ? process.ports.join(", ") : t("field.none")}
                       </p>
                     </div>
                     <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">CPU</p>
+                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.cpu")}</p>
                       <p className="mt-2 text-white/84">{process.cpu}%</p>
                     </div>
                     <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">Memory</p>
+                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.memory")}</p>
                       <p className="mt-2 text-white/84">{process.memory} MB</p>
                     </div>
                   </div>
@@ -2216,7 +2299,7 @@ function App() {
               ))
             ) : (
               <div className="rounded-[24px] border border-dashed border-white/10 bg-black/18 px-4 py-6 text-sm text-white/50">
-                No processes match the current workspace filters yet.
+                {t("overview.noProcesses")}
               </div>
             )}
           </div>
@@ -2226,7 +2309,7 @@ function App() {
             onClick={() => changeView("processes")}
             className="mt-4 inline-flex items-center gap-2 self-start rounded-full border border-white/10 bg-black/18 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/70 transition duration-300 hover:border-white/18 hover:text-white"
           >
-            See all
+            {t("overview.seeAll")}
             <ArrowUpRight size={14} />
           </button>
         </div>
@@ -2234,10 +2317,13 @@ function App() {
         <div className={`${panelClass} flex h-full flex-col`}>
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-white/42">Bindings</p>
-              <h3 className="mt-2 text-xl font-semibold text-white">Port Watch</h3>
+              <p className="text-xs uppercase tracking-[0.24em] text-white/42">{t("overview.bindings")}</p>
+              <h3 className="mt-2 text-xl font-semibold text-white">{t("overview.portWatch")}</h3>
             </div>
-            <StatusPill tone={conflictCount > 0 ? "warning" : "online"} label={`${previewPorts.length} shown`} />
+            <StatusPill
+              tone={conflictCount > 0 ? "warning" : "online"}
+              label={t("overview.shownCount", { count: previewPorts.length })}
+            />
           </div>
 
           <div className="mt-5 flex-1 space-y-3">
@@ -2257,20 +2343,20 @@ function App() {
                       </p>
                     </div>
                     <p className={`text-xs font-semibold uppercase tracking-[0.22em] ${portTextClassMap[port.status]}`}>
-                      {port.status}
+                      {t(portStatusLabelKeys[port.status])}
                     </p>
                   </div>
                   <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
                     <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">Proto</p>
+                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.proto")}</p>
                       <p className="mt-2 text-white/84 uppercase">{port.protocol}</p>
                     </div>
                     <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">Exposure</p>
-                      <p className="mt-2 capitalize text-white/84">{port.exposure}</p>
+                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.exposure")}</p>
+                      <p className="mt-2 capitalize text-white/84">{t(exposureLabelKeys[port.exposure])}</p>
                     </div>
                     <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">Target</p>
+                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.target")}</p>
                       <p className="mt-2 truncate text-white/84">{port.target}</p>
                     </div>
                   </div>
@@ -2278,7 +2364,7 @@ function App() {
               ))
             ) : (
               <div className="rounded-[24px] border border-dashed border-white/10 bg-black/18 px-4 py-6 text-sm text-white/50">
-                No watched bindings match the current search right now.
+                {t("overview.noBindings")}
               </div>
             )}
           </div>
@@ -2288,7 +2374,7 @@ function App() {
             onClick={() => changeView("ports")}
             className="mt-4 inline-flex items-center gap-2 self-start rounded-full border border-white/10 bg-black/18 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/70 transition duration-300 hover:border-white/18 hover:text-white"
           >
-            See all
+            {t("overview.seeAll")}
             <ArrowUpRight size={14} />
           </button>
         </div>
@@ -2297,15 +2383,15 @@ function App() {
       <section className={panelClass}>
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-white/42">System Monitor</p>
-            <h3 className="mt-2 text-xl font-semibold text-white">Basics</h3>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/42">{t("overview.systemMonitor")}</p>
+            <h3 className="mt-2 text-xl font-semibold text-white">{t("overview.basics")}</h3>
           </div>
           <button
             type="button"
             onClick={() => changeView("monitor")}
             className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/18 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/70 transition duration-300 hover:border-white/18 hover:text-white"
           >
-            Open monitor
+            {t("overview.openMonitor")}
             <ArrowUpRight size={14} />
           </button>
         </div>
@@ -2363,25 +2449,28 @@ function App() {
                     </h3>
                   </div>
                   <div className="flex flex-col items-end gap-2">
-                    <StatusPill tone={processToneMap[process.status]} label={process.status} />
+                    <StatusPill
+                      tone={processToneMap[process.status]}
+                      label={t(processStatusLabelKeys[process.status])}
+                    />
                     {renderProcessOwnershipTag(process)}
                   </div>
                 </div>
 
                 <div className="mt-5 grid grid-cols-3 gap-3 text-sm">
                   <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                    <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">Runtime</p>
+                    <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.runtime")}</p>
                     <p className="mt-2 text-white/84">{process.runtime}</p>
                   </div>
                   <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                    <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">Ports</p>
+                    <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.ports")}</p>
                     <p className="mt-2 text-white/84">
-                      {process.ports.length > 0 ? process.ports.join(", ") : "none"}
+                      {process.ports.length > 0 ? process.ports.join(", ") : t("field.none")}
                     </p>
                   </div>
                   <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                    <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">PID</p>
-                    <p className="mt-2 text-white/84">{process.pid ?? "none"}</p>
+                    <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.pid")}</p>
+                    <p className="mt-2 text-white/84">{process.pid ?? t("field.none")}</p>
                   </div>
                 </div>
               </button>
@@ -2391,7 +2480,7 @@ function App() {
                 onClick={() => toggleProcessExpanded(process.id)}
                 className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/18 px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/70 transition duration-300 hover:border-white/18 hover:text-white"
               >
-                {isExpanded ? "Collapse" : "Expand"}
+                {isExpanded ? t("processes.collapse") : t("processes.expand")}
                 {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               </button>
 
@@ -2401,7 +2490,7 @@ function App() {
                     {process.description}
                   </p>
                   <div className="min-w-0 rounded-[20px] border border-white/8 bg-black/18 px-4 py-4">
-                    <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">Command</p>
+                    <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.command")}</p>
                     <p className="mt-3 break-words font-mono text-sm leading-7 text-white/80 [overflow-wrap:anywhere]">
                       {process.command}
                     </p>
@@ -2411,18 +2500,18 @@ function App() {
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">Uptime</p>
+                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.uptime")}</p>
                       <p className="mt-2 text-white/84">{process.uptime}</p>
                     </div>
                     <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">Restarts</p>
+                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.restarts")}</p>
                       <p className="mt-2 text-white/84">{process.restarts}</p>
                     </div>
                   </div>
                   <div className="space-y-3">
-                    <HologramProgress label="CPU" value={process.cpu} hex={accent.amber} />
+                    <HologramProgress label={t("field.cpu")} value={process.cpu} hex={accent.amber} />
                     <HologramProgress
-                      label="Memory"
+                      label={t("field.memory")}
                       value={Math.min(100, Math.round((process.memory / 1200) * 100))}
                       hex={accent.cyan}
                     />
@@ -2430,11 +2519,10 @@ function App() {
                   {!process.managed ? (
                     <div className="rounded-[22px] border border-rose-400/14 bg-rose-500/8 p-4">
                       <p className="text-[0.72rem] uppercase tracking-[0.22em] text-rose-100/72">
-                        Observed Runtime Actions
+                        {t("processes.observedActions.title")}
                       </p>
                       <p className="mt-2 text-sm text-white/60">
-                        Promote this live row into a reviewed managed draft, or terminate only the
-                        current observed pid.
+                        {t("processes.observedActions.detail")}
                       </p>
                       {renderObservedActions(process)}
                     </div>
@@ -2447,15 +2535,15 @@ function App() {
         </section>
       ) : (
         renderStatePanel({
-          eyebrow: "Processes",
-          title: "No live processes match this filter",
+          eyebrow: t("overview.processes"),
+          title: t("processes.empty.title"),
           detail:
             searchValue.length > 0
-              ? `The current query "${query}" and process filter do not match any live process.`
-              : "No live processes are available from the current runtime snapshot.",
+              ? t("processes.empty.queryDetail", { query })
+              : t("processes.empty.snapshotDetail"),
           hex: accent.cyan,
           icon: Server,
-          actionLabel: "Reset Filters",
+          actionLabel: t("processes.resetFilters"),
           onAction: () => {
             setQuery("");
             setStatusFilter("all");
@@ -2471,11 +2559,11 @@ function App() {
     <section className={panelClass}>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-white/42">Managed Services</p>
-          <h3 className="mt-2 text-2xl font-semibold text-white">Command Deck</h3>
+          <p className="text-xs uppercase tracking-[0.24em] text-white/42">{t("managed.eyebrow")}</p>
+          <h3 className="mt-2 text-2xl font-semibold text-white">{t("managed.title")}</h3>
         </div>
         <ShinyButton
-          label="New Service"
+          label={t("action.newService")}
           hex={accent.rose}
           icon={Plus}
           subtle
@@ -2485,10 +2573,10 @@ function App() {
 
       <div className="mt-6 flex flex-wrap gap-3">
         {[
-          ["Managed", `${managedServices.length}`],
-          ["Autostart", `${autoStartCount}`],
-          ["Guarded", `${activeRestartPolicyCount}`],
-          ["Cleanup", `${managedServicesNeedingReview.length}`],
+          [t("managed.stat.managed"), `${managedServices.length}`],
+          [t("managed.stat.autostart"), `${autoStartCount}`],
+          [t("managed.stat.guarded"), `${activeRestartPolicyCount}`],
+          [t("managed.stat.cleanup"), `${managedServicesNeedingReview.length}`],
         ].map(([label, value]) => (
           <div
             key={label}
@@ -2506,11 +2594,10 @@ function App() {
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="text-[0.72rem] uppercase tracking-[0.22em] text-amber-100/72">
-                  Legacy Config Cleanup
+                  {t("managed.cleanup.title")}
                 </p>
                 <p className="mt-2 max-w-2xl text-sm text-white/66">
-                  {managedServicesNeedingReview.length} managed service
-                  {managedServicesNeedingReview.length === 1 ? "" : "s"} still need a quick review.
+                  {t("managed.cleanup.detail", { count: managedServicesNeedingReview.length })}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -2523,7 +2610,7 @@ function App() {
                       : "border-white/8 bg-black/18 text-white/66 hover:text-white"
                   }`}
                 >
-                  {managedCleanupOnly ? "Show All" : "Show Cleanup Only"}
+                  {managedCleanupOnly ? t("managed.showAll") : t("managed.showCleanupOnly")}
                 </button>
                 <button
                   type="button"
@@ -2535,7 +2622,7 @@ function App() {
                   }}
                   className="rounded-full border border-white/8 bg-black/18 px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/70 transition duration-300 hover:border-white/18 hover:text-white"
                 >
-                  Review First
+                  {t("managed.reviewFirst")}
                 </button>
               </div>
             </div>
@@ -2578,7 +2665,7 @@ function App() {
                           {process.name}
                         </p>
                         <p className="mt-1 text-sm text-white/54">
-                          {process.description || "No description yet."}
+                          {process.description || t("managed.noDescription")}
                         </p>
                         <p className="mt-3 truncate font-mono text-xs text-white/34">
                           {process.startCommand ?? process.command}
@@ -2587,7 +2674,10 @@ function App() {
                     </div>
 
                     <div className="flex flex-col items-end gap-2">
-                      <StatusPill tone={processToneMap[process.status]} label={process.status} />
+                      <StatusPill
+                        tone={processToneMap[process.status]}
+                        label={t(processStatusLabelKeys[process.status])}
+                      />
                       {renderManagedReviewTag(process)}
                       {renderManagedKindTag(process)}
                     </div>
@@ -2596,25 +2686,27 @@ function App() {
                   {process.review?.needsReview ? (
                     <div className="mt-4 rounded-[18px] border border-amber-300/14 bg-amber-400/8 px-4 py-3">
                       <p className="text-[0.68rem] uppercase tracking-[0.18em] text-amber-100/72">
-                        Cleanup Notes
+                        {t("managed.cleanupNotes")}
                       </p>
                       <p className="mt-2 text-sm text-white/64">
-                        {process.review.reasons[0] ??
-                          "This service was normalized from an older config entry and should be confirmed."}
+                        {process.review.reasons[0] ?? t("managed.cleanupFallback")}
                       </p>
                     </div>
                   ) : null}
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
                     {[
-                      ["PID", process.pid ? `${process.pid}` : "idle"],
-                      ["Ports", process.ports.length > 0 ? process.ports.join(", ") : "none"],
-                      ["Pulse", process.lastHeartbeat],
+                      [t("field.pid"), process.pid ? `${process.pid}` : t("field.idle")],
+                      [t("field.ports"), process.ports.length > 0 ? process.ports.join(", ") : t("field.none")],
+                      [t("managed.field.pulse"), process.lastHeartbeat],
                       [
-                        "Restart",
+                        t("managed.field.restart"),
                         process.restartPolicy === "manual"
-                          ? "manual"
-                          : `${process.restartPolicy} / ${process.restartLimit}x`,
+                          ? t("policy.manual")
+                          : t("managed.restartPolicyValue", {
+                              policy: t(restartPolicyLabelKeys[process.restartPolicy]),
+                              limit: process.restartLimit,
+                            }),
                       ],
                     ].map(([label, value]) => (
                       <div
@@ -2633,16 +2725,15 @@ function App() {
                     {[
                       {
                         id: `service-autostart:${process.id}`,
-                        label: "Autostart",
-                        detail: "Launch this service automatically when the desktop runtime boots.",
+                        label: t("managed.stat.autostart"),
+                        detail: t("managed.autostart.detail"),
                         enabled: process.autoStart,
                         hex: accent.rose,
                       },
                       {
                         id: `service-watch:${process.id}`,
-                        label: "Watch Ports",
-                        detail:
-                          "Include this service in watched binding scans so Mewl can flag port collisions or drift.",
+                        label: t("managed.watchPorts.label"),
+                        detail: t("managed.watchPorts.detail"),
                         enabled: process.watchPorts,
                         hex: accent.cyan,
                       },
@@ -2683,7 +2774,7 @@ function App() {
                                   : "rgba(255,255,255,0.26)",
                               }}
                             />
-                            {setting.enabled ? "On" : "Off"}
+                            {setting.enabled ? t("managed.on") : t("managed.off")}
                           </button>
                         </div>
                       </div>
@@ -2695,7 +2786,7 @@ function App() {
                     <div className="flex items-center gap-2">
                       {process.review?.needsReview
                         ? renderManagedActionButton({
-                            label: "Confirm cleanup review",
+                            label: t("action.confirmCleanupReview"),
                             icon: ShieldCheck,
                             hex: accent.amber,
                             onClick: () => confirmManagedReview(process.id),
@@ -2703,7 +2794,7 @@ function App() {
                           })
                         : null}
                       {renderManagedActionButton({
-                        label: "Edit service",
+                        label: t("action.editService"),
                         icon: PenSquare,
                         hex: titleHex,
                         onClick: () => openManagedEditModal(process),
@@ -2717,8 +2808,8 @@ function App() {
         ) : (
           <div className="rounded-[28px] border border-dashed border-white/10 bg-black/18 px-5 py-8 text-sm text-white/52">
             {managedCleanupOnly
-              ? "No managed services still need cleanup review right now. Switch back to the full command deck to see every saved service."
-              : "Create your first managed service to give Mewl a real launch definition instead of relying on a discovered process snapshot."}
+              ? t("managed.empty.cleanupOnly")
+              : t("managed.empty.create")}
           </div>
         )}
       </div>
@@ -2730,8 +2821,8 @@ function App() {
       <div className={panelClass}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-white/42">Logs</p>
-            <h3 className="mt-2 text-2xl font-semibold text-white">Unified Diagnostics</h3>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/42">{t("nav.logs")}</p>
+            <h3 className="mt-2 text-2xl font-semibold text-white">{t("logs.title")}</h3>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -2741,7 +2832,7 @@ function App() {
               className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/18 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/72 transition duration-300 hover:border-white/18 hover:text-white"
             >
               {logsPaused ? <PlayIcon size={14} /> : <Pause size={14} />}
-              {logsPaused ? "Resume" : "Pause"}
+              {logsPaused ? t("action.resume") : t("action.pause")}
             </button>
             <button
               type="button"
@@ -2752,18 +2843,18 @@ function App() {
                   : "border-white/10 bg-black/18 text-white/60 hover:text-white"
               }`}
             >
-              Follow Tail
+              {t("logs.followTail")}
             </button>
             <button
               type="button"
               onClick={() => {
                 setLogs([]);
                 pausedLogBufferRef.current = [];
-                setCommandState("Cleared the local Logs workspace history.");
+                setCommandState(t("logs.cleared"));
               }}
               className="rounded-full border border-white/10 bg-black/18 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/72 transition duration-300 hover:border-white/18 hover:text-white"
             >
-              Clear
+              {t("action.clear")}
             </button>
             <button
               type="button"
@@ -2771,7 +2862,7 @@ function App() {
               disabled={visibleLogs.length === 0}
               className="rounded-full border border-white/10 bg-black/18 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/72 transition duration-300 hover:border-white/18 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Export
+              {t("action.export")}
             </button>
           </div>
         </div>
@@ -2791,7 +2882,7 @@ function App() {
                   : "border-white/8 bg-black/18 text-white/42 hover:text-white/72"
               }`}
             >
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           ))}
         </div>
@@ -2801,7 +2892,7 @@ function App() {
             value={logQuery}
             onChange={setLogQuery}
             hex={accent.green}
-            placeholder="Search messages, sources, categories, or services..."
+            placeholder={t("logs.searchPlaceholder")}
           />
 
           <select
@@ -2809,7 +2900,7 @@ function App() {
             onChange={(event) => setLogSourceFilter(event.target.value)}
             className="rounded-[22px] border border-white/10 bg-[#0f141b]/94 px-4 py-3 text-sm text-white/78 outline-none"
           >
-            <option value="all">All Sources</option>
+            <option value="all">{t("logs.allSources")}</option>
             {logSourceOptions.map((source) => (
               <option key={source} value={source}>
                 {source}
@@ -2829,7 +2920,7 @@ function App() {
                     : "border-white/8 bg-black/18 text-white/42 hover:text-white/72"
                 }`}
               >
-                {option.label}
+                {t(option.labelKey)}
               </button>
             ))}
           </div>
@@ -2837,10 +2928,10 @@ function App() {
 
         <div className="mt-5 grid gap-3 lg:grid-cols-4">
           {[
-            ["Captured", `${tabFilteredLogs.length}`],
-            ["Visible", `${visibleLogs.length}`],
-            ["Buffered", `${pausedLogBufferRef.current.length}`],
-            ["Sources", `${logSourceOptions.length}`],
+            [t("logs.stat.captured"), `${tabFilteredLogs.length}`],
+            [t("logs.stat.visible"), `${visibleLogs.length}`],
+            [t("logs.stat.buffered"), `${pausedLogBufferRef.current.length}`],
+            [t("logs.stat.sources"), `${logSourceOptions.length}`],
           ].map(([label, value]) => (
             <div
               key={label}
@@ -2860,7 +2951,7 @@ function App() {
               <span className="size-2.5 rounded-full bg-emerald-300/90" />
             </div>
             <p className="text-[0.68rem] uppercase tracking-[0.22em] text-white/38">
-              {logsPaused ? "ui paused" : logFollowTail ? "live tail" : "manual browse"}
+              {logsPaused ? t("logs.mode.paused") : logFollowTail ? t("logs.mode.live") : t("logs.mode.manual")}
             </p>
           </div>
 
@@ -2896,7 +2987,7 @@ function App() {
                           backgroundColor: `${unifiedLogLevelHexMap[entry.level]}12`,
                         }}
                       >
-                        {entry.level}
+                        {t(unifiedLogLevelLabelKeys[entry.level])}
                       </span>
                       <span className="rounded-full border border-white/8 bg-black/18 px-2.5 py-1 text-[0.64rem] uppercase tracking-[0.2em] text-white/44">
                         {entry.sourceLabel}
@@ -2913,7 +3004,7 @@ function App() {
               </div>
             ) : (
               <div className="rounded-[24px] border border-dashed border-white/10 bg-black/18 px-4 py-8 text-sm text-white/48">
-                No log events match the current diagnostics filters yet.
+                {t("logs.empty")}
               </div>
             )}
           </div>
@@ -2941,23 +3032,23 @@ function App() {
               <p className="text-xs uppercase tracking-[0.24em] text-white/42">
                 {managedEditorMode === "create"
                   ? managedPrefillSource
-                    ? "Create Managed Service From Observed Runtime"
-                    : "Create Managed Service"
-                  : "Edit Managed Service"}
+                    ? t("editor.title.createFromObserved")
+                    : t("editor.title.create")
+                  : t("editor.title.edit")}
               </p>
               <h3 className="mt-2 text-2xl font-semibold text-white">
                 {managedEditorMode === "create"
                   ? managedPrefillSource
-                    ? "Review the observed draft"
-                    : "Author a launch definition"
-                  : selectedManagedService?.name ?? "Managed editor"}
+                    ? t("editor.heading.createFromObserved")
+                    : t("editor.heading.create")
+                  : selectedManagedService?.name ?? t("editor.heading.fallback")}
               </h3>
             </div>
 
             <div className="flex items-center gap-2">
               {managedEditorMode === "edit" && selectedManagedService ? (
                 renderManagedActionButton({
-                  label: "Remove managed service",
+                  label: t("action.removeManagedService"),
                   icon: Trash2,
                   hex: accent.rose,
                   onClick: removeManagedDraft,
@@ -2968,7 +3059,7 @@ function App() {
                 type="button"
                 onClick={() => setManagedEditorOpen(false)}
                 className="grid size-10 place-items-center rounded-[18px] border border-white/10 bg-black/18 text-white/70 transition duration-300 hover:border-white/18 hover:text-white"
-                aria-label="Close managed editor"
+                aria-label={t("editor.closeAria")}
               >
                 <X size={18} />
               </button>
@@ -2980,16 +3071,17 @@ function App() {
               {managedEditorMode === "create" && managedPrefillSource ? (
                 <div className="rounded-[24px] border border-rose-400/16 bg-rose-500/8 p-4">
                   <p className="text-[0.72rem] uppercase tracking-[0.22em] text-rose-100/72">
-                    Prefilled From Observed Runtime
+                    {t("editor.prefill.title")}
                   </p>
                   <p className="mt-2 text-sm text-white/62">
-                    This draft was captured from the live process {managedPrefillSource.name} (pid{" "}
-                    {managedPrefillSource.pid ?? "none"}). Review the command and optional stop or
-                    restart hooks before saving it as a managed definition.
+                    {t("editor.prefill.detail", {
+                      name: managedPrefillSource.name,
+                      pid: managedPrefillSource.pid ?? t("field.none"),
+                    })}
                   </p>
                   <div className="mt-4 rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
                     <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">
-                      Observed Command
+                      {t("editor.prefill.commandLabel")}
                     </p>
                     <p className="mt-2 break-all font-mono text-sm text-white/80">
                       {managedPrefillSource.command}
@@ -3003,11 +3095,10 @@ function App() {
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                       <p className="text-[0.72rem] uppercase tracking-[0.22em] text-amber-100/72">
-                        Cleanup This Imported Service
+                        {t("editor.cleanup.title")}
                       </p>
                       <p className="mt-2 text-sm text-white/66">
-                        This saved definition was normalized from an older `mewl.services.json`
-                        entry. Confirm the details below once they look right.
+                        {t("editor.cleanup.detail")}
                       </p>
                     </div>
                     <button
@@ -3021,7 +3112,7 @@ function App() {
                       }`}
                     >
                       <ShieldCheck size={14} />
-                      Mark Reviewed
+                      {t("action.markReviewed")}
                     </button>
                   </div>
                   <div className="mt-4 grid gap-3">
@@ -3041,7 +3132,7 @@ function App() {
                 <div className="space-y-4">
                   <div className="rounded-[24px] border border-white/8 bg-[#0f141b]/94 p-4">
                     <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
-                      Service Mode
+                      {t("editor.serviceMode")}
                     </p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-3">
                       {managedServiceKindOptions.map((option) => {
@@ -3068,8 +3159,8 @@ function App() {
                                 : "border-white/8 bg-black/14 text-white/56 hover:text-white/82"
                             }`}
                           >
-                            <p className="text-sm font-semibold">{option.label}</p>
-                            <p className="mt-2 text-xs leading-5 text-white/48">{option.detail}</p>
+                            <p className="text-sm font-semibold">{t(option.labelKey)}</p>
+                            <p className="mt-2 text-xs leading-5 text-white/48">{t(option.detailKey)}</p>
                           </button>
                         );
                       })}
@@ -3077,20 +3168,20 @@ function App() {
                   </div>
 
                   <label className="block">
-                    <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">Name</p>
+                    <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">{t("editor.name")}</p>
                     <input
                       className="mt-2 w-full rounded-[20px] border border-white/10 bg-[#0f141b]/94 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30"
                       value={managedDraft.name}
                       onChange={(event) =>
                         setManagedDraft((current) => ({ ...current, name: event.target.value }))
                       }
-                      placeholder="MyApp"
+                      placeholder={t("editor.namePlaceholder")}
                     />
                   </label>
 
                   <label className="block">
                     <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
-                      Description
+                      {t("editor.description")}
                     </p>
                     <textarea
                       className="mt-2 min-h-[110px] w-full rounded-[20px] border border-white/10 bg-[#0f141b]/94 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30"
@@ -3101,13 +3192,13 @@ function App() {
                           description: event.target.value,
                         }))
                       }
-                      placeholder="Optional note for what this service does."
+                      placeholder={t("editor.descriptionPlaceholder")}
                     />
                   </label>
 
                   <label className="block">
                     <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
-                      {managedKindMeta.startLabel}
+                      {t(managedKindMeta.startLabelKey)}
                     </p>
                     <input
                       className="mt-2 w-full rounded-[20px] border border-white/10 bg-[#0f141b]/94 px-4 py-3 font-mono text-sm text-white outline-none placeholder:text-white/30"
@@ -3124,7 +3215,7 @@ function App() {
 
                   <label className="block">
                     <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
-                      {managedKindMeta.stopLabel}
+                      {t(managedKindMeta.stopLabelKey)}
                     </p>
                     <input
                       className="mt-2 w-full rounded-[20px] border border-white/10 bg-[#0f141b]/94 px-4 py-3 font-mono text-sm text-white outline-none placeholder:text-white/30"
@@ -3135,13 +3226,13 @@ function App() {
                           stopCommand: event.target.value,
                         }))
                       }
-                      placeholder={managedKindMeta.stopPlaceholder}
+                      placeholder={t(managedKindMeta.stopPlaceholderKey)}
                     />
                   </label>
 
                   <label className="block">
                     <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
-                      {managedKindMeta.restartLabel}
+                      {t(managedKindMeta.restartLabelKey)}
                     </p>
                     <input
                       className="mt-2 w-full rounded-[20px] border border-white/10 bg-[#0f141b]/94 px-4 py-3 font-mono text-sm text-white outline-none placeholder:text-white/30"
@@ -3152,13 +3243,13 @@ function App() {
                           restartCommand: event.target.value,
                         }))
                       }
-                      placeholder={managedKindMeta.restartPlaceholder}
+                      placeholder={t(managedKindMeta.restartPlaceholderKey)}
                     />
                   </label>
 
                   <label className="block">
                     <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
-                      Working Directory
+                      {t("editor.workingDirectory")}
                     </p>
                     <input
                       className="mt-2 w-full rounded-[20px] border border-white/10 bg-[#0f141b]/94 px-4 py-3 font-mono text-sm text-white outline-none placeholder:text-white/30"
@@ -3177,31 +3268,31 @@ function App() {
                 <div className="space-y-4">
                   <div className="rounded-[24px] border border-white/8 bg-[#0f141b]/94 p-4">
                     <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
-                      Mode Guidance
+                      {t("editor.modeGuidance")}
                     </p>
-                    <p className="mt-3 text-sm leading-6 text-white/60">{managedKindMeta.guidance}</p>
+                    <p className="mt-3 text-sm leading-6 text-white/60">{t(managedKindMeta.guidanceKey)}</p>
                   </div>
 
                   <div className="rounded-[24px] border border-white/8 bg-[#0f141b]/94 p-4">
                     <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
-                      Restart Policy
+                      {t("editor.restartPolicy")}
                     </p>
                     <div className="mt-4 grid gap-3">
                       {[
                         {
                           id: "manual",
-                          label: "Manual",
-                          detail: "Only restart this service when you explicitly ask Mewl to do it.",
+                          labelKey: "policy.manual" as TranslationKey,
+                          detailKey: "policy.manual.detail" as TranslationKey,
                         },
                         {
                           id: "on-failure",
-                          label: "On Failure",
-                          detail: "Retry after non-zero exits or signals, up to the retry limit below.",
+                          labelKey: "policy.on-failure" as TranslationKey,
+                          detailKey: "policy.on-failure.detail" as TranslationKey,
                         },
                         {
                           id: "always",
-                          label: "Always",
-                          detail: "Bring the service back after every exit until the retry limit is reached.",
+                          labelKey: "policy.always" as TranslationKey,
+                          detailKey: "policy.always.detail" as TranslationKey,
                         },
                       ].map((option) => {
                         const selected = managedDraft.restartPolicy === option.id;
@@ -3221,8 +3312,8 @@ function App() {
                                 : "border-white/8 bg-black/14 text-white/56 hover:text-white/82"
                             }`}
                           >
-                            <p className="text-sm font-semibold">{option.label}</p>
-                            <p className="mt-2 text-xs leading-5 text-white/48">{option.detail}</p>
+                            <p className="text-sm font-semibold">{t(option.labelKey)}</p>
+                            <p className="mt-2 text-xs leading-5 text-white/48">{t(option.detailKey)}</p>
                           </button>
                         );
                       })}
@@ -3230,7 +3321,7 @@ function App() {
 
                     <label className="mt-4 block">
                       <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
-                        Retry Limit
+                        {t("editor.retryLimit")}
                       </p>
                       <input
                         type="number"
@@ -3250,7 +3341,7 @@ function App() {
 
                   <div className="rounded-[24px] border border-white/8 bg-[#0f141b]/94 p-4">
                     <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
-                      Title Color
+                      {t("editor.titleColor")}
                     </p>
                     <div className="mt-4 flex flex-wrap gap-3">
                       {managedServiceColorOptions.map((option) => (
@@ -3270,7 +3361,7 @@ function App() {
                             className="size-3 rounded-full border border-white/10"
                             style={{ backgroundColor: managedServiceColorMap[option.id] }}
                           />
-                          {option.label}
+                          {t(option.labelKey)}
                         </button>
                       ))}
                     </div>
@@ -3278,7 +3369,7 @@ function App() {
 
                   <div className="rounded-[24px] border border-white/8 bg-[#0f141b]/94 p-4">
                     <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
-                      Card Icon
+                      {t("editor.cardIcon")}
                     </p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
                       {managedServiceIconOptions.map((option) => {
@@ -3300,7 +3391,7 @@ function App() {
                             <span className="grid size-10 place-items-center rounded-[16px] border border-white/10 bg-black/18">
                               <Icon size={18} />
                             </span>
-                            <span className="text-sm font-medium">{option.label}</span>
+                            <span className="text-sm font-medium">{t(option.labelKey)}</span>
                           </button>
                         );
                       })}
@@ -3308,16 +3399,14 @@ function App() {
                   </div>
 
                   <div className="rounded-[24px] border border-dashed border-white/10 bg-black/18 px-4 py-4 text-sm text-white/46">
-                    Commands are tokenized without a shell. Plain commands like `npm start`,
-                    `docker compose up app`, and direct script paths like `./scripts/dev.sh` work
-                    well here.
+                    {t("editor.hint")}
                   </div>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-3 border-t border-white/8 pt-4">
                 <ShinyButton
-                  label={managedEditorMode === "create" ? "Create Service" : "Save Changes"}
+                  label={managedEditorMode === "create" ? t("action.createService") : t("action.saveChanges")}
                   hex={accent.rose}
                   icon={managedEditorMode === "create" ? Plus : PenSquare}
                   onClick={saveManagedDraft}
@@ -3333,7 +3422,7 @@ function App() {
                     }}
                     className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/18 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/70 transition duration-300 hover:border-white/18 hover:text-white"
                   >
-                    Reset
+                    {t("action.reset")}
                   </button>
                 )}
                 <button
@@ -3341,7 +3430,7 @@ function App() {
                   onClick={() => setManagedEditorOpen(false)}
                   className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/18 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/70 transition duration-300 hover:border-white/18 hover:text-white"
                 >
-                  Close
+                  {t("action.close")}
                 </button>
               </div>
             </div>
@@ -3357,11 +3446,11 @@ function App() {
       <div className={panelClass}>
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-white/42">Port Registry</p>
-            <h3 className="mt-2 text-2xl font-semibold text-white">Bindings</h3>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/42">{t("ports.eyebrow")}</p>
+            <h3 className="mt-2 text-2xl font-semibold text-white">{t("overview.bindings")}</h3>
           </div>
           <ShinyButton
-            label="Scan Ports"
+            label={t("action.scan")}
             hex={accent.cyan}
             icon={Waypoints}
             subtle
@@ -3374,12 +3463,12 @@ function App() {
           {filteredPorts.length > 0 ? (
             <div className="min-w-[940px]">
               <div className="grid grid-cols-[72px_76px_minmax(0,1.1fr)_120px_110px_minmax(180px,1.45fr)] gap-4 border-b border-white/8 px-5 py-4 text-xs uppercase tracking-[0.24em] text-white/38">
-                <span>Port</span>
-                <span>Proto</span>
-                <span>Service</span>
-                <span>Exposure</span>
-                <span>Status</span>
-                <span>Target</span>
+                <span>{t("ports.table.port")}</span>
+                <span>{t("field.proto")}</span>
+                <span>{t("ports.table.service")}</span>
+                <span>{t("field.exposure")}</span>
+                <span>{t("ports.table.status")}</span>
+                <span>{t("field.target")}</span>
               </div>
 
               <div className="divide-y divide-white/6">
@@ -3394,9 +3483,9 @@ function App() {
                       <p className="break-words text-sm text-white/86">{port.service}</p>
                       <p className="text-xs text-white/38">{port.note}</p>
                     </div>
-                    <p className="text-sm capitalize text-white/62">{port.exposure}</p>
+                    <p className="text-sm capitalize text-white/62">{t(exposureLabelKeys[port.exposure])}</p>
                     <p className={`text-sm font-medium capitalize ${portTextClassMap[port.status]}`}>
-                      {port.status}
+                      {t(portStatusLabelKeys[port.status])}
                     </p>
                     <p className="break-all text-sm text-white/46">{port.target}</p>
                   </div>
@@ -3405,9 +3494,9 @@ function App() {
             </div>
           ) : (
             <div className="px-5 py-8">
-              <p className="text-sm font-semibold text-white/84">No bindings match the current search</p>
+              <p className="text-sm font-semibold text-white/84">{t("ports.empty.title")}</p>
               <p className="mt-2 text-sm text-white/52">
-                Clear the current query or scan again once a runtime bridge is feeding fresh bindings.
+                {t("ports.empty.detail")}
               </p>
             </div>
           )}
@@ -3417,8 +3506,8 @@ function App() {
       <div className={panelClass}>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-white/42">Port Safety</p>
-            <h3 className="mt-2 text-xl font-semibold text-white">Exposure Summary</h3>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/42">{t("ports.safety.eyebrow")}</p>
+            <h3 className="mt-2 text-xl font-semibold text-white">{t("ports.safety.title")}</h3>
           </div>
           <div className="grid size-11 place-items-center rounded-[20px] border border-white/10 bg-black/18">
             <ShieldCheck size={20} className="text-cyan-300" />
@@ -3427,10 +3516,10 @@ function App() {
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           {[
-            ["Public", `${publicPortCount}`],
-            ["Conflicts", `${conflictCount}`],
-            ["Watched", `${watchedCount}`],
-            ["Open", `${openPortCount}`],
+            [t("ports.safety.public"), `${publicPortCount}`],
+            [t("ports.safety.conflicts"), `${conflictCount}`],
+            [t("ports.safety.watched"), `${watchedCount}`],
+            [t("ports.safety.open"), `${openPortCount}`],
           ].map(([label, value]) => (
             <div key={label} className="rounded-[22px] border border-white/8 bg-black/18 px-4 py-4">
               <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/38">{label}</p>
@@ -3454,7 +3543,7 @@ function App() {
                       {port.port} / {port.service}
                     </p>
                     <p className={`text-xs uppercase tracking-[0.22em] ${portTextClassMap[port.status]}`}>
-                      {port.status}
+                      {t(portStatusLabelKeys[port.status])}
                     </p>
                   </div>
                   <p className="mt-2 text-sm text-white/54">{port.note}</p>
@@ -3462,7 +3551,7 @@ function App() {
               ))
           ) : (
             <div className="rounded-[22px] border border-dashed border-white/10 bg-black/18 px-4 py-5 text-sm text-white/48">
-              No public or conflicting bindings need attention right now.
+              {t("ports.safety.empty")}
             </div>
           )}
         </div>
@@ -3475,8 +3564,8 @@ function App() {
       <div className={panelClass}>
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-white/42">System Monitor</p>
-            <h3 className="mt-2 text-2xl font-semibold text-white">Pressure Tides</h3>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/42">{t("overview.systemMonitor")}</p>
+            <h3 className="mt-2 text-2xl font-semibold text-white">{t("monitor.title")}</h3>
           </div>
         </div>
 
@@ -3486,10 +3575,10 @@ function App() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-xs uppercase tracking-[0.22em] text-white/38">
-                    Trend Canvas
+                    {t("monitor.trendCanvas")}
                   </p>
                   <p className="mt-2 text-lg font-semibold text-white">
-                    Rolling host pressure
+                    {t("monitor.rollingPressure")}
                   </p>
                 </div>
                 <Gauge size={20} className="text-cyan-300" />
@@ -3532,9 +3621,9 @@ function App() {
                   <div className="relative flex items-start justify-between gap-4">
                     <div>
                       <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
-                        Runtime Pulse
+                        {t("monitor.runtimePulse")}
                       </p>
-                      <p className="mt-2 text-xl font-semibold text-white">Current service waveform</p>
+                      <p className="mt-2 text-xl font-semibold text-white">{t("monitor.currentWaveform")}</p>
                     </div>
                     <div
                       className="rounded-full border px-3 py-1 text-[0.68rem] uppercase tracking-[0.22em]"
@@ -3544,7 +3633,7 @@ function App() {
                         backgroundColor: `${accent.amber}12`,
                       }}
                     >
-                      live
+                      {t("monitor.live")}
                     </div>
                   </div>
 
@@ -3557,14 +3646,14 @@ function App() {
                   </div>
 
                   <p className="mt-4 text-sm text-white/52">
-                    Live waveform for the active service draw rhythm across the current sample window.
+                    {t("monitor.waveformDetail")}
                   </p>
                 </article>
               </div>
             </div>
           ) : (
             <div className="rounded-[22px] border border-dashed border-white/10 bg-black/18 px-4 py-5 text-sm text-white/48">
-              Host metrics will appear here once the runtime source delivers a pressure snapshot.
+              {t("monitor.trendEmpty")}
             </div>
           )}
 
@@ -3572,14 +3661,14 @@ function App() {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.22em] text-white/38">
-                  Snapshot Lane
+                  {t("monitor.snapshotLane")}
                 </p>
                 <p className="mt-2 text-lg font-semibold text-white">
-                  Current host pressure
+                  {t("monitor.currentPressure")}
                 </p>
               </div>
               <div className="rounded-full border border-white/10 bg-black/18 px-3 py-1 text-xs uppercase tracking-[0.22em] text-white/58">
-                last 24 samples
+                {t("monitor.last24")}
               </div>
             </div>
 
@@ -3598,7 +3687,7 @@ function App() {
                 ))
               ) : (
                 <div className="rounded-[22px] border border-dashed border-white/10 bg-black/18 px-4 py-5 text-sm text-white/48 xl:col-span-2">
-                  Waiting on the next host pressure snapshot.
+                  {t("monitor.waitingSnapshot")}
                 </div>
               )}
             </div>
@@ -3608,8 +3697,8 @@ function App() {
 
       <div className={panelClass}>
         <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-white/42">Noisy Services</p>
-          <h3 className="mt-2 text-xl font-semibold text-white">Top Resource Draw</h3>
+          <p className="text-xs uppercase tracking-[0.24em] text-white/42">{t("monitor.noisyServices")}</p>
+          <h3 className="mt-2 text-xl font-semibold text-white">{t("monitor.topDraw")}</h3>
         </div>
 
         <div className="mt-5 grid gap-3 xl:grid-cols-2">
@@ -3635,21 +3724,24 @@ function App() {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-2">
-                    <StatusPill tone={processToneMap[process.status]} label={process.status} />
+                    <StatusPill
+                      tone={processToneMap[process.status]}
+                      label={t(processStatusLabelKeys[process.status])}
+                    />
                     {renderProcessOwnershipTag(process)}
                   </div>
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
                   <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                    <p className="text-[0.7rem] uppercase tracking-[0.18em] text-white/34">CPU</p>
+                    <p className="text-[0.7rem] uppercase tracking-[0.18em] text-white/34">{t("field.cpu")}</p>
                     <p className="mt-2 font-semibold text-white">{process.cpu}%</p>
                   </div>
                   <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                    <p className="text-[0.7rem] uppercase tracking-[0.18em] text-white/34">Memory</p>
+                    <p className="text-[0.7rem] uppercase tracking-[0.18em] text-white/34">{t("field.memory")}</p>
                     <p className="mt-2 font-semibold text-white">{process.memory} MB</p>
                   </div>
                   <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
-                    <p className="text-[0.7rem] uppercase tracking-[0.18em] text-white/34">Network</p>
+                    <p className="text-[0.7rem] uppercase tracking-[0.18em] text-white/34">{t("field.network")}</p>
                     <p className="mt-2 font-semibold text-white">{process.network} Mbps</p>
                   </div>
                 </div>
@@ -3659,7 +3751,9 @@ function App() {
                     onClick={() => toggleResourceDrawExpanded(process.id)}
                     className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/18 px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/70 transition duration-300 hover:border-white/18 hover:text-white"
                   >
-                    {expandedResourceDrawIds.includes(process.id) ? "Collapse" : "Expand"}
+                    {expandedResourceDrawIds.includes(process.id)
+                      ? t("processes.collapse")
+                      : t("processes.expand")}
                     {expandedResourceDrawIds.includes(process.id) ? (
                       <ChevronUp size={14} />
                     ) : (
@@ -3674,7 +3768,7 @@ function App() {
                     }}
                     className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/18 px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/70 transition duration-300 hover:border-white/18 hover:text-white"
                   >
-                    Inspect
+                    {t("monitor.inspect")}
                     <ArrowUpRight size={14} />
                   </button>
                 </div>
@@ -3683,7 +3777,7 @@ function App() {
                     <p className="text-sm text-white/56">{process.description}</p>
                     <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
                       <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">
-                        Command
+                        {t("field.command")}
                       </p>
                       <p className="mt-2 break-all font-mono text-sm text-white/78">
                         {process.command}
@@ -3698,7 +3792,7 @@ function App() {
             ))
           ) : (
             <div className="rounded-[22px] border border-dashed border-white/10 bg-black/18 px-4 py-5 text-sm text-white/48 xl:col-span-2">
-              Resource leaders will appear after the runtime delivers process telemetry.
+              {t("monitor.leadersEmpty")}
             </div>
           )}
         </div>
@@ -3709,10 +3803,11 @@ function App() {
   const renderPage = () => {
     if (runtimeStatus === "loading") {
       return renderStatePanel({
-        eyebrow: "Runtime Source",
-        title: "Hydrating the local workspace",
-        detail:
-          `Mewl is restoring saved filters, process state, and the current ${runtimeSource.label.toLowerCase()} snapshot before the dashboard becomes interactive.`,
+        eyebrow: t("state.loading.eyebrow"),
+        title: t("state.loading.title"),
+        detail: t("state.loading.detail", {
+          source: t(runtimeSource.labelKey),
+        }),
         hex: accent.cyan,
         icon: Terminal,
       });
@@ -3720,14 +3815,14 @@ function App() {
 
     if (runtimeStatus === "error") {
       return renderStatePanel({
-        eyebrow: "Runtime Source",
-        title: "Workspace session could not be restored",
-        detail:
-          runtimeError ??
-          "The desktop bridge could not be reached. Resetting the workspace will retry the live Electron connection.",
+        eyebrow: t("state.loading.eyebrow"),
+        title: t("state.error.title"),
+        detail: runtimeError
+          ? describeError(runtimeError, "state.error.detail")
+          : t("state.error.detail"),
         hex: accent.rose,
         icon: BellRing,
-        actionLabel: "Reset Session",
+        actionLabel: t("action.resetSession"),
         onAction: restoreDefaultWorkspace,
       });
     }
@@ -3771,7 +3866,7 @@ function App() {
             <div className="flex items-center gap-3">
               <img
                 src={appIconUrl}
-                alt="Mewl icon"
+                alt={t("shell.appIconAlt")}
                 className="size-18 rounded-[16px] border border-white/10 object-cover shadow-[0_0_32px_rgba(148,163,184,0.18)]"
               />
               {!sidebarCollapsed ? (
@@ -3803,8 +3898,9 @@ function App() {
           ) : null}
 
           <nav className="mt-8 space-y-2">
-            {viewMeta.map(({ id, label, icon: Icon, hex }) => {
+            {viewMeta.map(({ id, labelKey, icon: Icon, hex }) => {
               const isActive = id === activeView;
+              const label = t(labelKey);
               return (
                 <button
                   key={id}
@@ -3855,14 +3951,14 @@ function App() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 {!sidebarCollapsed ? (
-                  <p className="text-xs uppercase tracking-[0.24em] text-white/40">Host Health</p>
+                  <p className="text-xs uppercase tracking-[0.24em] text-white/40">{t("shell.hostHealth")}</p>
                 ) : null}
                 <p className={`font-semibold text-white ${sidebarCollapsed ? "mt-1 text-2xl" : "mt-3 text-3xl"}`}>
                   {100 - degradedCount * 7}%
                 </p>
               </div>
               {!sidebarCollapsed ? (
-                <StatusPill tone={degradedCount > 0 ? "warning" : "online"} label="Watched" />
+                <StatusPill tone={degradedCount > 0 ? "warning" : "online"} label={t("filters.watching")} />
               ) : null}
             </div>
 
@@ -3876,14 +3972,14 @@ function App() {
 
             <div className={`mt-4 grid gap-3 ${sidebarCollapsed ? "grid-cols-1" : "grid-cols-2"}`}>
               {[
-                ["CPU", `${hostCpu}%`, ""],
+                [t("field.cpu"), `${hostCpu}%`, ""],
                 ["RAM", `${hostMemory}%`, ""],
                 ["Disk", `${hostDisk}%`, ""],
-                ["Net", `${hostNetwork}%`, ""],
+                [t("field.network"), `${hostNetwork}%`, ""],
                 [
                   "GPU",
                   hostGpuMetric?.available === false
-                    ? "Unavailable"
+                    ? t("monitor.gpuUnavailable")
                     : hostGpuMetric?.displayValue ?? `${hostGpu}%`,
                   "col-span-2",
                 ],
@@ -3909,13 +4005,13 @@ function App() {
                   value={query}
                   onChange={setQuery}
                   hex={accent.rose}
-                  placeholder="Search services, ports, folders, or commands..."
+                  placeholder={t("shell.searchPlaceholder")}
                 />
               </div>
 
               <div className="flex flex-wrap gap-3">
                 <ShinyButton
-                  label="Scan"
+                  label={t("action.scan")}
                   hex={accent.cyan}
                   icon={Waypoints}
                   subtle
@@ -3928,12 +4024,28 @@ function App() {
                 tone={runtimeIndicatorTone}
                 label={
                   runtimeStatus === "ready"
-                    ? runtimeSource.badgeLabel
+                    ? runtimeSource.badgeLabelKey
+                      ? t(runtimeSource.badgeLabelKey)
+                      : ""
                     : runtimeStatus === "error"
-                      ? "source error"
-                      : "hydrating"
+                      ? t("shell.status.sourceError")
+                      : t("shell.status.hydrating")
                 }
               />
+
+              {/* Language toggle. Shows the language you would switch to, which is
+                  the common convention for compact in-app switchers. */}
+              {/* 语言切换按钮。显示将要切换到的语言，这是应用内紧凑切换器的常见惯例。 */}
+              <button
+                type="button"
+                onClick={() => setLocale(locale === "en" ? "zh" : "en")}
+                aria-label={t("language.switch")}
+                title={t("language.switch")}
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#0f141b]/94 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-white/72 transition duration-300 hover:border-white/18 hover:text-white"
+              >
+                <Languages size={16} />
+                {locale === "en" ? "中文" : "EN"}
+              </button>
 
               <div className="relative ml-auto">
                 <button
@@ -3974,7 +4086,7 @@ function App() {
                         : "border-white/8 bg-black/18 text-white/42 hover:text-white/72"
                     }`}
                   >
-                    {option.label}
+                    {t(option.labelKey)}
                   </button>
                 ))}
               </div>

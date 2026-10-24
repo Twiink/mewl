@@ -38,6 +38,481 @@ const scriptInterpreterByExtension = {
   ".mjs": "node",
 };
 
+// ---------------------------------------------------------------------------
+// Runtime i18n. The main process generates user-visible alerts, log entries,
+// action messages, metric labels, and error text. The renderer pushes the
+// active locale through the "mewl:set-locale" IPC channel, and every message
+// site below resolves its copy through rt() so the desktop experience follows
+// the same language as the UI chrome.
+//
+// 主进程国际化。主进程会生成用户可见的告警、日志条目、操作消息、指标标签与
+// 错误文本。渲染进程通过 "mewl:set-locale" IPC 通道推送当前语言，
+// 下方的消息生成点全部经由 rt() 解析文案，使桌面端体验与界面语言保持一致。
+//
+// Interpolation conventions (shared with src/i18n dictionaries):
+//   {name}          -> replaced by params.name
+//   {|s}            -> "" when params.count === 1, otherwise "s"
+//   {|is,are}       -> "is" when params.count === 1, otherwise "are"
+//   {failures|s}    -> plural marker keyed to params.failures instead of count
+// 插值约定（与 src/i18n 词典共用）：
+//   {name}          -> 替换为 params.name
+//   {|s}            -> params.count === 1 时输出 ""，否则输出 "s"
+//   {|is,are}       -> params.count === 1 时输出 "is"，否则输出 "are"
+//   {failures|s}    -> 以 params.failures 为计数的复数标记（而非 count）
+// ---------------------------------------------------------------------------
+
+const runtimeDictionaries = {
+  en: {
+    "action.stop": "Stop",
+    "action.restart": "Restart",
+
+    "uptime.unknown": "unknown",
+    "uptime.stopped": "stopped",
+    "heartbeat.live": "live",
+    "heartbeat.idle": "idle",
+    "heartbeat.justNow": "just now",
+    "heartbeat.booting": "booting",
+
+    "group.workspace": "workspace",
+    "group.browser": "browser",
+    "group.development": "development",
+    "group.system": "system",
+    "group.managed": "managed",
+
+    "lastExit.noRecent": "No recent exit",
+    "lastExit.clean": "Clean exit from the Electron bridge",
+    "lastExit.signal": "Exited after signal {signal}",
+    "lastExit.code": "Exited with code {code}",
+    "lastExit.unknownCode": "unknown",
+    "lastExit.autoRestartFailed": "Automatic restart failed.",
+    "lastExit.runningAfterReattach": "Running after host reattachment",
+    "lastExit.stoppedAfterReattach": "Stopped from the Electron bridge after host reattachment",
+    "lastExit.autostartFailed": "Autostart failed.",
+    "lastExit.profileBootFailed": "Profile boot failed.",
+
+    "log.serviceExited": "Managed service {name} exited ({exit}).",
+    "log.serviceStarted": "Managed service {name} started with pid {pid}.",
+    "log.serviceStartFailed": "Managed service {name} failed to start: {error}",
+    "log.stdoutUpdated": "stdout updated",
+    "log.stderrUpdated": "stderr updated",
+    "log.stopRequested": "Stop requested for {name}.",
+    "log.startRequested": "Start requested for {name}.",
+    "log.commandRequested": "{label} command requested for {name}.",
+    "log.autoRestartFailed": "Automatic restart failed for {name}.",
+    "log.autostartFailed": "Autostart failed for {name}.",
+
+    "internal.journaldStarting": "Starting journald log adapter.",
+    "internal.journaldStderr": "journald adapter stderr.",
+    "internal.journaldStartFailed": "journald adapter could not start.",
+    "internal.journaldStopped": "journald adapter stopped.",
+    "internal.skipDockerLogs": "Skipping docker log collection.",
+    "internal.reservedPortsOccupied": "Reserved ports are occupied.",
+    "internal.hydrating": "Hydrating runtime snapshot.",
+    "internal.performingAction": "Performing process action.",
+    "internal.onDemandScan": "Running live host scan on demand.",
+    "internal.killRequested": "Observed process kill requested.",
+    "internal.updatingService": "Updating managed service.",
+    "internal.creatingDraft": "Creating managed service draft.",
+    "internal.removingService": "Removing managed service.",
+    "internal.applyingRule": "Applying automation rule.",
+    "log.reattached": "Mewl reattached {name} from a live host process on pid {pid}.",
+    "log.terminatedAfterReattach": "Managed host process {name} was terminated after reattachment.",
+    "log.discovered": "Discovered {args} from the runtime scan.",
+    "log.degradedKernel": "This process is reporting a non-running kernel state.",
+
+    "history.exited": "{name} exited",
+    "history.exitedUnexpectedly": "{name} exited unexpectedly",
+    "history.exitedDetail": "Mewl recorded: {exit}",
+    "history.restartLimitReached": "{name} reached restart policy limit",
+    "history.restartLimitDetail":
+      "Automatic {policy} restarts stopped after {count} attempt{|s} this session.",
+    "history.queuedForRestart": "{name} queued for automatic restart",
+    "history.queuedDetail":
+      "Restart policy {policy} is retrying launch attempt {count} of {limit}.",
+    "history.autoRestartFailed": "{name} automatic restart failed",
+    "history.autoRestartFailedDetail": "The policy-based restart could not be completed.",
+    "history.startFailed": "{name} failed to start",
+    "history.autostartFailed": "{name} autostart failed",
+    "history.profileStartFailed": "{name} profile start failed",
+    "history.started": "Started {name}",
+    "history.startedDetailPolicy": "Restart policy requested a new launch.",
+    "history.startedDetailProfile": "A startup profile launched this managed service.",
+    "history.startedDetailRuntime": "The runtime boot sequence launched this managed service.",
+    "history.startedDetailManual": "A managed start action launched this service.",
+    "history.stopped": "Stopped {name}",
+    "history.stoppedDetailProfile": "A quiet-mode profile ran the configured stop flow.",
+    "history.stoppedDetailDocker":
+      "Mewl derived a Docker-aware stop flow from the saved launch command.",
+    "history.stoppedDetailDefault": "Mewl ran the configured stop flow for this service.",
+    "history.stoppedDetailParked": "A quiet-mode profile parked the tracked process.",
+    "history.stoppedDetailTracked": "Mewl stopped the tracked process for this managed service.",
+    "history.restarted": "Restarted {name}",
+    "history.restartedDetailCommand":
+      "Mewl ran the configured restart command for this managed service.",
+    "history.restartedDetailPolicy": "Restart policy recycled this managed service after an exit.",
+    "history.restartedDetailFallback": "Mewl completed the fallback stop/start restart flow.",
+    "history.autostartEnabled": "{name} autostart enabled",
+    "history.autostartDisabled": "{name} autostart disabled",
+    "history.autostartEnabledDetail":
+      "This managed service will now launch when the desktop runtime boots.",
+    "history.autostartDisabledDetail":
+      "This managed service will no longer launch automatically on boot.",
+    "history.watchEnabled": "{name} port watch enabled",
+    "history.watchDisabled": "{name} port watch disabled",
+    "history.watchEnabledDetail": "Mewl will include this service in watched port scans.",
+    "history.watchDisabledDetail":
+      "Mewl will stop tracking this service during watched port scans.",
+    "history.profileEnabled": "{title} enabled",
+    "history.profileDisabled": "{title} disabled",
+    "history.profileEnabledDetail": "The profile was applied to its managed services.",
+    "history.profileDisabledDetail": "The profile was disabled for future automation runs.",
+
+    "alerts.portConflict.title": "Port conflict detected",
+    "alerts.portConflict.detail": "{count} live binding{|s} share a reserved port.",
+    "alerts.publicExposed.title": "Public listeners exposed",
+    "alerts.publicExposed.detail": "{count} binding{|s} are reachable beyond localhost.",
+    "alerts.hotProcess.title": "Hot process on the host",
+    "alerts.hotProcess.detail": "{name} is currently leading CPU usage at {cpu}%.",
+    "alerts.memoryPressure.title": "Memory pressure is elevated",
+    "alerts.memoryPressure.detail": "Host memory pressure is currently {value}%.",
+    "alerts.gpuLoad.title": "GPU load is elevated",
+    "alerts.gpuLoad.detail": "Host GPU load is currently {value}.",
+    "alerts.managedParked.title": "Managed service is parked",
+    "alerts.managedParked.detail":
+      "{name} is registered with Mewl and ready to start from the desktop bridge.",
+    "alerts.managedHot.title": "Managed service is running hot",
+    "alerts.managedHot.cpuDetail": "{name} is drawing {cpu}% CPU right now.",
+    "alerts.managedHot.memoryDetail": "{name} is holding {memory} MB and may need attention.",
+    "alerts.crashLoop.title": "Managed service may be crash looping",
+    "alerts.crashLoop.detail":
+      "{name} logged {failures} recent failure{failures|s} and {retries} policy retr{retries|y,ies} in the last two hours.",
+    "alerts.orphanedPort.title": "Reserved port is held by another process",
+    "alerts.orphanedPort.detail":
+      "{name} expects port {port}, but the live binding currently belongs to a different process.",
+    "alerts.healthy.title": "Live host snapshot is healthy",
+    "alerts.healthy.detail":
+      "No immediate port conflicts or pressure spikes were detected in the latest scan.",
+
+    "metrics.cpu.label": "Host CPU",
+    "metrics.cpu.detail": "Live sample from CPU polling.",
+    "metrics.memory.label": "Memory Pressure",
+    "metrics.memory.detail": "Using {used} MB of {total} MB.",
+    "metrics.disk.label": "Disk Activity",
+    "metrics.disk.detail": "Root filesystem usage.",
+    "metrics.network.label": "Network Chatter",
+    "metrics.network.detail": "Observed {throughput} across active interfaces.",
+    "metrics.gpu.label": "GPU Load",
+    "metrics.gpu.unavailable": "Unavailable",
+    "gpu.detail.vram": "{name} using {used} of {total} VRAM.",
+    "gpu.detail.utilization": "{name} is reporting a live utilization sample.",
+    "gpu.detail.drmBusy": "{card} busy sample from the DRM host telemetry.",
+    "gpu.detail.drmVram": "{card} using {used} of {total} VRAM.",
+    "gpu.unavailableDetail": "GPU telemetry is unavailable on this host bridge right now.",
+
+    "ports.note.conflict": "Multiple live processes are currently bound to this host port.",
+    "ports.note.public": "Listener is reachable beyond the loopback interface.",
+    "ports.note.discovered": "Listener was discovered from the live host scan.",
+
+    "processes.description.discoveredCwd": "{runtime} process discovered from {cwd}.",
+    "processes.description.discovered": "{runtime} process discovered from the live host scan.",
+    "processes.lastExitDiscovered": "Exit history is not available for discovered live processes.",
+
+    "review.legacyCommand":
+      "Start command was imported from the older command/args format and should be reviewed in Managed.",
+    "review.defaultDescription":
+      "Description is still using the default placeholder copy and could use a real service note.",
+    "review.cwdFallback":
+      "Working directory fell back to `.` from the legacy config and should be confirmed.",
+    "review.nameInherited":
+      "Service name still looks inherited from the older config key and may deserve a friendlier label.",
+
+    "default.description": "Managed command registered for the Mewl desktop bridge.",
+    "default.profileDetail": "Managed startup profile for the Electron runtime bridge.",
+    "default.profileCadence": "manual profile",
+
+    "rules.autostartTitle": "{name} autostart",
+    "rules.autostartDetail": "Launch {name} automatically when the managed workspace boots.",
+    "rules.cadence.sessionStart": "session start",
+    "rules.watchTitle": "{name} watch ports",
+    "rules.watchDetail": "Include {name} in watched binding scans and collision summaries.",
+    "rules.cadence.liveScan": "live scan",
+
+    "errors.executableNotFound": "Managed executable not found: {path}",
+    "errors.executableNotOnPath":
+      'Managed executable "{command}" is not available on the configured PATH.',
+    "errors.scriptNotFound": "Managed script not found: {path}",
+    "errors.commandRequired": "Managed services need a command before they can run.",
+    "errors.executableTokenRequired":
+      "Managed service commands must start with a real executable token.",
+    "errors.unmatchedQuote": "Managed command parsing found an unmatched quote.",
+    "errors.portsOccupied":
+      "{name} could not start because reserved port{|s} {ports} {|is,are} already in use.",
+    "errors.alreadyRunning": "Service is already running.",
+    "errors.alreadyStopped": "Service is already stopped.",
+    "errors.killOnlyObserved": "The observed kill action only supports live observed process rows.",
+    "errors.killInvalidPid": "The observed process pid is invalid.",
+    "errors.killManagedPid":
+      "This pid belongs to a managed service. Use the managed start, stop, or restart controls instead.",
+    "errors.processGone": "That observed process is no longer running.",
+    "errors.unsupportedAction": "Unsupported action: {action}",
+    "errors.serviceNotConfigured":
+      "Only configured Mewl-managed services can be controlled from the desktop bridge.",
+    "errors.serviceNotEditable":
+      "Only configured Mewl-managed services can be edited from the desktop bridge.",
+    "errors.nameAndStartRequired": "Managed services need both a name and a start command.",
+    "errors.startCommandRequired": "Managed services need a start command before they can be saved.",
+    "errors.profileNotFound": "The requested startup profile was not found in mewl.services.json.",
+    "errors.ruleNotManaged": "This automation rule is not managed by the Electron bridge.",
+
+    "messages.scanCompleted": "Live host scan completed.",
+    "messages.killedObserved": "Terminated observed process {name} (pid {pid}).",
+    "messages.started": "Started {name}.",
+    "messages.stopped": "Stopped {name}.",
+    "messages.restarted": "Restarted {name}.",
+    "messages.reviewCleared": "{name} no longer needs legacy cleanup review.",
+    "messages.settingsUpdated": "{name} settings updated.",
+    "messages.alreadyManaged": "{name} is already managed by Mewl.",
+    "messages.nowManaged": "{name} is now managed by Mewl.",
+    "messages.alreadyRemoved": "This managed service was already removed.",
+    "messages.nowObservedOnly": "{name} is now observed only.",
+    "messages.profileEnabled": "{title} enabled.",
+    "messages.profileDisabled": "{title} disabled.",
+  },
+  zh: {
+    "action.stop": "停止",
+    "action.restart": "重启",
+
+    "uptime.unknown": "未知",
+    "uptime.stopped": "已停止",
+    "heartbeat.live": "实时",
+    "heartbeat.idle": "空闲",
+    "heartbeat.justNow": "刚刚",
+    "heartbeat.booting": "启动中",
+
+    "group.workspace": "工作区",
+    "group.browser": "浏览器",
+    "group.development": "开发",
+    "group.system": "系统",
+    "group.managed": "托管",
+
+    "lastExit.noRecent": "暂无退出记录",
+    "lastExit.clean": "通过 Electron 桥接正常退出",
+    "lastExit.signal": "因信号 {signal} 退出",
+    "lastExit.code": "以退出码 {code} 退出",
+    "lastExit.unknownCode": "未知",
+    "lastExit.autoRestartFailed": "自动重启失败。",
+    "lastExit.runningAfterReattach": "主机重连后恢复运行",
+    "lastExit.stoppedAfterReattach": "主机重连后经 Electron 桥接停止",
+    "lastExit.autostartFailed": "自启动失败。",
+    "lastExit.profileBootFailed": "启动方案执行失败。",
+
+    "log.serviceExited": "托管服务 {name} 已退出（{exit}）。",
+    "log.serviceStarted": "托管服务 {name} 已启动，pid 为 {pid}。",
+    "log.serviceStartFailed": "托管服务 {name} 启动失败：{error}",
+    "log.stdoutUpdated": "stdout 已更新",
+    "log.stderrUpdated": "stderr 已更新",
+    "log.stopRequested": "已请求停止 {name}。",
+    "log.startRequested": "已请求启动 {name}。",
+    "log.commandRequested": "已请求为 {name} 执行{label}命令。",
+    "log.autoRestartFailed": "{name} 自动重启失败。",
+    "log.autostartFailed": "{name} 自启动失败。",
+
+    "internal.journaldStarting": "正在启动 journald 日志适配器。",
+    "internal.journaldStderr": "journald 适配器错误输出。",
+    "internal.journaldStartFailed": "journald 适配器无法启动。",
+    "internal.journaldStopped": "journald 适配器已停止。",
+    "internal.skipDockerLogs": "跳过 Docker 日志收集。",
+    "internal.reservedPortsOccupied": "保留端口已被占用。",
+    "internal.hydrating": "正在生成运行时快照。",
+    "internal.performingAction": "正在执行进程操作。",
+    "internal.onDemandScan": "正在按需执行实时主机扫描。",
+    "internal.killRequested": "已请求终止观测进程。",
+    "internal.updatingService": "正在更新托管服务。",
+    "internal.creatingDraft": "正在创建托管服务草稿。",
+    "internal.removingService": "正在移除托管服务。",
+    "internal.applyingRule": "正在应用自动化规则。",
+    "log.reattached": "Mewl 已从实时主机进程重新挂接 {name}，pid 为 {pid}。",
+    "log.terminatedAfterReattach": "主机重连后，被挂接的主机进程 {name} 已被终止。",
+    "log.discovered": "运行时扫描发现了 {args}。",
+    "log.degradedKernel": "该进程上报了非运行中的内核状态。",
+
+    "history.exited": "{name} 已退出",
+    "history.exitedUnexpectedly": "{name} 意外退出",
+    "history.exitedDetail": "Mewl 已记录：{exit}",
+    "history.restartLimitReached": "{name} 已达到重启策略上限",
+    "history.restartLimitDetail": "自动{policy}重启在本次会话尝试 {count} 次后停止。",
+    "history.queuedForRestart": "{name} 已排队等待自动重启",
+    "history.queuedDetail": "重启策略 {policy} 正在进行第 {count}/{limit} 次启动重试。",
+    "history.autoRestartFailed": "{name} 自动重启失败",
+    "history.autoRestartFailedDetail": "基于策略的重启未能完成。",
+    "history.startFailed": "{name} 启动失败",
+    "history.autostartFailed": "{name} 自启动失败",
+    "history.profileStartFailed": "{name} 启动方案执行失败",
+    "history.started": "已启动 {name}",
+    "history.startedDetailPolicy": "重启策略请求了新的启动。",
+    "history.startedDetailProfile": "启动方案拉起了该托管服务。",
+    "history.startedDetailRuntime": "运行时启动序列拉起了该托管服务。",
+    "history.startedDetailManual": "托管启动操作拉起了该服务。",
+    "history.stopped": "已停止 {name}",
+    "history.stoppedDetailProfile": "安静模式方案执行了已配置的停止流程。",
+    "history.stoppedDetailDocker": "Mewl 根据已保存的启动命令推导了 Docker 感知的停止流程。",
+    "history.stoppedDetailDefault": "Mewl 为该服务执行了已配置的停止流程。",
+    "history.stoppedDetailParked": "安静模式方案挂起了被跟踪的进程。",
+    "history.stoppedDetailTracked": "Mewl 为该托管服务停止了被跟踪的进程。",
+    "history.restarted": "已重启 {name}",
+    "history.restartedDetailCommand": "Mewl 为该托管服务执行了已配置的重启命令。",
+    "history.restartedDetailPolicy": "退出后，重启策略回收了该托管服务。",
+    "history.restartedDetailFallback": "Mewl 完成了回退的停止/启动重启流程。",
+    "history.autostartEnabled": "已启用 {name} 自启动",
+    "history.autostartDisabled": "已停用 {name} 自启动",
+    "history.autostartEnabledDetail": "该托管服务将在桌面运行时启动时自动拉起。",
+    "history.autostartDisabledDetail": "该托管服务将不再在启动时自动拉起。",
+    "history.watchEnabled": "已启用 {name} 端口监控",
+    "history.watchDisabled": "已停用 {name} 端口监控",
+    "history.watchEnabledDetail": "Mewl 将把该服务纳入端口监控扫描。",
+    "history.watchDisabledDetail": "Mewl 将在端口监控扫描中停止跟踪该服务。",
+    "history.profileEnabled": "已启用 {title}",
+    "history.profileDisabled": "已停用 {title}",
+    "history.profileEnabledDetail": "该方案已应用到其托管服务。",
+    "history.profileDisabledDetail": "该方案已停用，后续自动化运行不再执行。",
+
+    "alerts.portConflict.title": "检测到端口冲突",
+    "alerts.portConflict.detail": "{count} 个实时绑定共用了同一保留端口。",
+    "alerts.publicExposed.title": "存在公网可达监听",
+    "alerts.publicExposed.detail": "{count} 个绑定可从 localhost 之外访问。",
+    "alerts.hotProcess.title": "主机存在高负载进程",
+    "alerts.hotProcess.detail": "{name} 当前 CPU 占用最高，达 {cpu}%。",
+    "alerts.memoryPressure.title": "内存压力偏高",
+    "alerts.memoryPressure.detail": "主机内存压力当前为 {value}%。",
+    "alerts.gpuLoad.title": "GPU 负载偏高",
+    "alerts.gpuLoad.detail": "主机 GPU 负载当前为 {value}。",
+    "alerts.managedParked.title": "托管服务处于待机",
+    "alerts.managedParked.detail": "{name} 已注册到 Mewl，可随时从桌面桥接启动。",
+    "alerts.managedHot.title": "托管服务负载过高",
+    "alerts.managedHot.cpuDetail": "{name} 当前 CPU 占用为 {cpu}%。",
+    "alerts.managedHot.memoryDetail": "{name} 当前占用 {memory} MB 内存，可能需要关注。",
+    "alerts.crashLoop.title": "托管服务可能陷入崩溃循环",
+    "alerts.crashLoop.detail": "{name} 在过去两小时内记录了 {failures} 次失败和 {retries} 次策略重试。",
+    "alerts.orphanedPort.title": "保留端口被其他进程占用",
+    "alerts.orphanedPort.detail": "{name} 期望使用端口 {port}，但当前实时绑定属于另一个进程。",
+    "alerts.healthy.title": "实时主机快照状态良好",
+    "alerts.healthy.detail": "最新扫描未发现直接的端口冲突或压力激增。",
+
+    "metrics.cpu.label": "主机 CPU",
+    "metrics.cpu.detail": "来自 CPU 轮询的实时采样。",
+    "metrics.memory.label": "内存压力",
+    "metrics.memory.detail": "已使用 {used} MB / 共 {total} MB。",
+    "metrics.disk.label": "磁盘活动",
+    "metrics.disk.detail": "根文件系统使用率。",
+    "metrics.network.label": "网络流量",
+    "metrics.network.detail": "活动接口观测到 {throughput}。",
+    "metrics.gpu.label": "GPU 负载",
+    "metrics.gpu.unavailable": "不可用",
+    "gpu.detail.vram": "{name} 正在使用 {used} / {total} 显存。",
+    "gpu.detail.utilization": "{name} 正在提供实时利用率采样。",
+    "gpu.detail.drmBusy": "来自 DRM 主机遥测的 {card} 占用采样。",
+    "gpu.detail.drmVram": "{card} 正在使用 {used} / {total} 显存。",
+    "gpu.unavailableDetail": "当前主机桥接暂时无法获取 GPU 遥测数据。",
+
+    "ports.note.conflict": "多个实时进程当前绑定在该主机端口上。",
+    "ports.note.public": "监听器可从回环接口之外访问。",
+    "ports.note.discovered": "监听器由实时主机扫描发现。",
+
+    "processes.description.discoveredCwd": "从 {cwd} 发现的 {runtime} 进程。",
+    "processes.description.discovered": "由实时主机扫描发现的 {runtime} 进程。",
+    "processes.lastExitDiscovered": "实时发现的进程没有可用的退出历史。",
+
+    "review.legacyCommand": "启动命令由旧的 command/args 格式导入，请在托管页复核。",
+    "review.defaultDescription": "描述仍在使用默认占位文案，建议补充实际的服务说明。",
+    "review.cwdFallback": "工作目录由旧配置回退为 `.`，请确认是否正确。",
+    "review.nameInherited": "服务名看起来仍沿用了旧配置键，建议改为更友好的名称。",
+
+    "default.description": "为 Mewl 桌面桥接注册的托管命令。",
+    "default.profileDetail": "Electron 运行时桥接的托管启动方案。",
+    "default.profileCadence": "手动方案",
+
+    "rules.autostartTitle": "{name} 自启动",
+    "rules.autostartDetail": "托管工作区启动时自动拉起 {name}。",
+    "rules.cadence.sessionStart": "会话启动",
+    "rules.watchTitle": "{name} 端口监控",
+    "rules.watchDetail": "将 {name} 纳入端口绑定扫描与冲突汇总。",
+    "rules.cadence.liveScan": "实时扫描",
+
+    "errors.executableNotFound": "找不到托管可执行文件：{path}",
+    "errors.executableNotOnPath": "托管可执行文件“{command}”不在已配置的 PATH 中。",
+    "errors.scriptNotFound": "找不到托管脚本：{path}",
+    "errors.commandRequired": "托管服务需要先填写命令才能运行。",
+    "errors.executableTokenRequired": "托管服务命令必须以真实的可执行文件名开头。",
+    "errors.unmatchedQuote": "托管命令解析发现未闭合的引号。",
+    "errors.portsOccupied": "{name} 无法启动，保留端口 {ports} 已被占用。",
+    "errors.alreadyRunning": "服务已在运行中。",
+    "errors.alreadyStopped": "服务已处于停止状态。",
+    "errors.killOnlyObserved": "终止操作只支持实时观测到的进程。",
+    "errors.killInvalidPid": "观测进程的 pid 无效。",
+    "errors.killManagedPid": "该 pid 属于托管服务。请使用托管的启动、停止或重启控制。",
+    "errors.processGone": "该观测进程已不在运行。",
+    "errors.unsupportedAction": "不支持的操作：{action}",
+    "errors.serviceNotConfigured": "只有已配置的 Mewl 托管服务才能通过桌面桥接控制。",
+    "errors.serviceNotEditable": "只有已配置的 Mewl 托管服务才能通过桌面桥接编辑。",
+    "errors.nameAndStartRequired": "托管服务需要同时提供名称和启动命令。",
+    "errors.startCommandRequired": "托管服务需要先填写启动命令才能保存。",
+    "errors.profileNotFound": "在 mewl.services.json 中找不到请求的启动方案。",
+    "errors.ruleNotManaged": "该自动化规则不受 Electron 桥接管理。",
+
+    "messages.scanCompleted": "实时主机扫描完成。",
+    "messages.killedObserved": "已终止观测进程 {name}（pid {pid}）。",
+    "messages.started": "已启动 {name}。",
+    "messages.stopped": "已停止 {name}。",
+    "messages.restarted": "已重启 {name}。",
+    "messages.reviewCleared": "{name} 不再需要旧配置清理复核。",
+    "messages.settingsUpdated": "{name} 的设置已更新。",
+    "messages.alreadyManaged": "{name} 已被 Mewl 托管。",
+    "messages.nowManaged": "{name} 已交由 Mewl 托管。",
+    "messages.alreadyRemoved": "该托管服务已被移除。",
+    "messages.nowObservedOnly": "{name} 已恢复为仅观测状态。",
+    "messages.profileEnabled": "{title} 已启用。",
+    "messages.profileDisabled": "{title} 已停用。",
+  },
+};
+
+// The locale starts as English and follows the renderer once it mounts.
+// 语言初始为英文，渲染进程挂载后跟随其设置。
+let runtimeLocale = "en";
+
+function setRuntimeLocale(locale) {
+  if (locale === "zh" || locale === "en") {
+    runtimeLocale = locale;
+  }
+}
+
+function rt(key, params) {
+  const dictionary = runtimeDictionaries[runtimeLocale] ?? runtimeDictionaries.en;
+  const template = dictionary[key] ?? runtimeDictionaries.en[key] ?? key;
+
+  if (!params) {
+    return template;
+  }
+
+  return template.replace(/\{(\w+)?\|([^}]*)\}|\{(\w+)\}/g, (_match, countKey, forms, key) => {
+    if (forms !== undefined) {
+      const [first, second] = forms.split(",");
+      // A single form is a bare plural suffix; two forms are singular/plural.
+      // 单一形式表示纯复数后缀；两种形式依次为单数/复数。
+      const count = Number(countKey ? params[countKey] : params.count);
+      const isSingular = count === 1;
+
+      if (second === undefined) {
+        return isSingular ? "" : first;
+      }
+
+      return isSingular ? first : second;
+    }
+
+    const value = params[key];
+    return value === undefined ? `{${key}}` : String(value);
+  });
+}
+
 function createLogBroker({
   maxEvents,
   flushDelayMs,
@@ -129,6 +604,7 @@ function createLogBroker({
           await adapter.stop();
         } catch (_error) {
           // Swallow shutdown cleanup failures to avoid blocking app quit.
+          // 吞掉关闭时的清理失败，避免阻塞应用退出。
         }
       }
     },
@@ -282,6 +758,7 @@ function createJournaldAdapter() {
       );
     } catch (_error) {
       // Ignore partial or malformed journal lines without taking down the adapter.
+      // 忽略不完整或损坏的日志行，避免整个适配器失效。
     }
   };
 
@@ -302,7 +779,7 @@ function createJournaldAdapter() {
 
       started = true;
       stopping = false;
-      runtimeLogger.info("Starting journald log adapter.");
+      runtimeLogger.info(rt("internal.journaldStarting"));
       child = spawn(
         "journalctl",
         ["-f", "-n", "120", "-o", "json", "--no-pager"],
@@ -321,12 +798,12 @@ function createJournaldAdapter() {
       child.stderr?.on("data", (chunk) => {
         const message = String(chunk).trim();
         if (message) {
-          runtimeLogger.debug("journald adapter stderr.", { message });
+          runtimeLogger.debug(rt("internal.journaldStderr"), { message });
         }
       });
 
       child.on("error", (error) => {
-        runtimeLogger.warn("journald adapter could not start.", {
+        runtimeLogger.warn(rt("internal.journaldStartFailed"), {
           message: error.message,
         });
       });
@@ -336,7 +813,7 @@ function createJournaldAdapter() {
         buffer = "";
 
         if (!stopping) {
-          runtimeLogger.warn("journald adapter stopped.", {
+          runtimeLogger.warn(rt("internal.journaldStopped"), {
             code,
             signal,
           });
@@ -356,10 +833,6 @@ function createJournaldAdapter() {
 }
 
 logBroker.registerAdapter(createJournaldAdapter());
-
-function uniqueList(values) {
-  return Array.from(new Set(values.filter(Boolean)));
-}
 
 function getConfigRootPath() {
   if (process.platform === "win32") {
@@ -611,7 +1084,7 @@ async function collectManagedDockerLogs(service) {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Docker logs could not be collected.";
-    portsLogger.debug("Skipping docker log collection.", {
+    portsLogger.debug(rt("internal.skipDockerLogs"), {
       serviceId: service.id,
       serviceName: service.name,
       message,
@@ -715,8 +1188,14 @@ function getManagedState(serviceId) {
     policyRestartCount: 0,
     launchSource: "runtime",
     startedAt: null,
-    lastExit: "No recent exit",
-    lastHeartbeat: "idle",
+    lastExit: rt("lastExit.noRecent"),
+    lastHeartbeat: rt("heartbeat.idle"),
+    // Pid whose reattachment was already logged. Text-based dedup broke when
+    // the message template changed language, and again once the log tail
+    // trimmed the old line away.
+    // 已记录过重挂接日志的 pid。按日志文本去重在语言切换或日志被裁剪后都会失效，
+    // 因此改用状态标记。
+    reattachLoggedPid: null,
     logs: {
       stdout: [],
       stderr: [],
@@ -797,7 +1276,7 @@ function parseCommandLine(commandLine) {
   }
 
   if (quote) {
-    throw new Error("Managed command parsing found an unmatched quote.");
+    throw new Error(rt("errors.unmatchedQuote"));
   }
 
   if (escaping) {
@@ -813,14 +1292,14 @@ function parseCommandLine(commandLine) {
 
 async function resolveExecutable(command, envPath, cwd) {
   if (!command || /\s/.test(command.trim())) {
-    throw new Error("Managed service commands must start with a real executable token.");
+    throw new Error(rt("errors.executableTokenRequired"));
   }
 
   if (command.includes(path.sep)) {
     const resolvedPath = path.isAbsolute(command) ? command : path.resolve(cwd || process.cwd(), command);
 
     if (!(await pathExists(resolvedPath))) {
-      throw new Error(`Managed executable not found: ${resolvedPath}`);
+      throw new Error(rt("errors.executableNotFound", { path: resolvedPath }));
     }
 
     return resolvedPath;
@@ -837,14 +1316,14 @@ async function resolveExecutable(command, envPath, cwd) {
     }
   }
 
-  throw new Error(`Managed executable "${command}" is not available on the configured PATH.`);
+  throw new Error(rt("errors.executableNotOnPath", { command }));
 }
 
 async function resolveScriptCommand(command, args, envPath, cwd) {
   const scriptPath = path.isAbsolute(command) ? command : path.resolve(cwd || process.cwd(), command);
 
   if (!(await pathExists(scriptPath))) {
-    throw new Error(`Managed script not found: ${scriptPath}`);
+    throw new Error(rt("errors.scriptNotFound", { path: scriptPath }));
   }
 
   const extension = path.extname(scriptPath).toLowerCase();
@@ -863,7 +1342,7 @@ async function resolveScriptCommand(command, args, envPath, cwd) {
 async function resolveCommandSpec(commandLine, envPath, cwd) {
   const [command, ...args] = parseCommandLine(commandLine);
   if (!command) {
-    throw new Error("Managed services need a command before they can run.");
+    throw new Error(rt("errors.commandRequired"));
   }
 
   if (command.includes(path.sep) || command.startsWith(".")) {
@@ -993,8 +1472,12 @@ async function sampleNvidiaGpuUsage() {
           percent,
           detail:
             totalMb > 0
-              ? `${name} using ${formatMegabytes(usedMb)} of ${formatMegabytes(totalMb)} VRAM.`
-              : `${name} is reporting a live utilization sample.`,
+              ? rt("gpu.detail.vram", {
+                  name,
+                  used: formatMegabytes(usedMb),
+                  total: formatMegabytes(totalMb),
+                })
+              : rt("gpu.detail.utilization", { name }),
         };
       })
       .filter(Boolean);
@@ -1039,7 +1522,7 @@ async function sampleSysfsGpuUsage() {
             "mem_info_vram_total",
           );
 
-          let detail = `${entry.toUpperCase()} busy sample from the DRM host telemetry.`;
+          let detail = rt("gpu.detail.drmBusy", { card: entry.toUpperCase() });
 
           if ((await pathExists(usedVramPath)) && (await pathExists(totalVramPath))) {
             const [usedBytes, totalBytes] = await Promise.all([
@@ -1050,7 +1533,11 @@ async function sampleSysfsGpuUsage() {
             const totalMb = Number.parseInt(totalBytes.trim(), 10) / oneMegabyte;
 
             if (Number.isFinite(usedMb) && Number.isFinite(totalMb) && totalMb > 0) {
-              detail = `${entry.toUpperCase()} using ${formatMegabytes(usedMb)} of ${formatMegabytes(totalMb)} VRAM.`;
+              detail = rt("gpu.detail.drmVram", {
+                card: entry.toUpperCase(),
+                used: formatMegabytes(usedMb),
+                total: formatMegabytes(totalMb),
+              });
             }
           }
 
@@ -1092,7 +1579,7 @@ async function sampleGpuUsage() {
   return {
     available: false,
     percent: 0,
-    detail: "GPU telemetry is unavailable on this host bridge right now.",
+    detail: rt("gpu.unavailableDetail"),
   };
 }
 
@@ -1372,6 +1859,10 @@ function getManagedDockerLogCommand(service) {
   }
 }
 
+// Group values are persisted, so they stay in canonical English here;
+// localizeGroup() re-renders them in the active language for display.
+// 分组值会写入配置文件，因此这里保持规范英文；展示时由 localizeGroup()
+// 按当前语言重新渲染。
 function normalizeGroup(runtime, cwd) {
   if (cwd.includes("/PROJECTS/") || cwd.includes("/code/") || cwd.includes("/src/")) {
     return "workspace";
@@ -1388,6 +1879,20 @@ function normalizeGroup(runtime, cwd) {
   return "system";
 }
 
+// Map a canonical group to the active language. Unknown values (for example
+// groups persisted by older builds in another language) pass through as-is.
+// 将规范分组映射为当前语言。未知取值（例如旧版本以其他语言持久化的分组）原样透传。
+function localizeGroup(group) {
+  if (typeof group !== "string" || group.length === 0) {
+    return group;
+  }
+
+  const dictionaryKey = `group.${group}`;
+  const localized = runtimeDictionaries[runtimeLocale]?.[dictionaryKey] ?? runtimeDictionaries.en[dictionaryKey];
+
+  return localized ?? group;
+}
+
 function normalizeStatus(state) {
   if (state.includes("T") || state.includes("Z") || state.includes("X")) {
     return "degraded";
@@ -1398,7 +1903,7 @@ function normalizeStatus(state) {
 
 function formatElapsed(raw) {
   if (!raw) {
-    return "unknown";
+    return rt("uptime.unknown");
   }
 
   if (raw.includes("-")) {
@@ -1411,7 +1916,7 @@ function formatElapsed(raw) {
 
 function formatManagedElapsed(startedAt) {
   if (!startedAt) {
-    return "stopped";
+    return rt("uptime.stopped");
   }
 
   const seconds = Math.max(1, Math.floor((Date.now() - startedAt) / 1000));
@@ -1597,32 +2102,66 @@ function sanitizeManagedService(service) {
   };
 }
 
+// Canonical English lookup for strings that get persisted. Config files and
+// state comparisons must not depend on the active locale, so anything written
+// to disk resolves from the English dictionary even while the UI runs in
+// Chinese. Display-time localization re-maps these through rt()/reasonKeys.
+// 面向持久化的规范英文取词函数。配置文件与状态比较不能依赖当前语言，
+// 因此写入磁盘的内容一律取自英文词典，即使界面正运行在中文下。
+// 展示时的本地化通过 rt()/reasonKeys 重新映射。
+function ren(key, params) {
+  const template = runtimeDictionaries.en[key] ?? key;
+
+  if (!params) {
+    return template;
+  }
+
+  return template.replace(/\{(\w+)?\|([^}]*)\}|\{(\w+)\}/g, (_match, countKey, forms, key) => {
+    if (forms !== undefined) {
+      const [first, second] = forms.split(",");
+      const isSingular = Number(countKey ? params[countKey] : params.count) === 1;
+
+      if (second === undefined) {
+        return isSingular ? "" : first;
+      }
+
+      return isSingular ? first : second;
+    }
+
+    const value = params[key];
+    return value === undefined ? `{${key}}` : String(value);
+  });
+}
+
 function getManagedReviewState(service, normalizedService, legacyCommandUsed) {
   const review =
     service.review && typeof service.review === "object" && !Array.isArray(service.review)
       ? service.review
       : null;
-  const storedReasons = Array.isArray(review?.reasons)
-    ? review.reasons.filter((value) => typeof value === "string" && value.trim().length > 0)
-    : [];
-  const reasons = [...storedReasons];
+  // Reasons are fully derived from structural conditions and regenerated in a
+  // canonical English form on every load. Previously stored reason text was
+  // merged in here, which mixed languages after a locale switch and made the
+  // config-change detection compare localized sentences. needsReview from an
+  // explicit marker is still honored even without structural reasons.
+  // 复核原因完全由结构条件推导，并在每次加载时以规范英文形式重新生成。
+  // 旧实现会把已存储的原因文本合并进来，导致语言切换后中英混杂，
+  // 也让配置变更检测去比较本地化句子。显式 needsReview 标记仍然生效。
+  const reasonKeys = [];
+  const reasons = [];
 
   if (legacyCommandUsed) {
-    reasons.push(
-      "Start command was imported from the older command/args format and should be reviewed in Managed.",
-    );
+    reasonKeys.push("review.legacyCommand");
+    reasons.push(ren("review.legacyCommand"));
   }
 
   if (typeof service.description !== "string" || service.description.trim().length === 0) {
-    reasons.push(
-      "Description is still using the default placeholder copy and could use a real service note.",
-    );
+    reasonKeys.push("review.defaultDescription");
+    reasons.push(ren("review.defaultDescription"));
   }
 
   if (typeof service.cwd !== "string" || service.cwd.trim().length === 0) {
-    reasons.push(
-      "Working directory fell back to `.` from the legacy config and should be confirmed.",
-    );
+    reasonKeys.push("review.cwdFallback");
+    reasons.push(ren("review.cwdFallback"));
   }
 
   if (
@@ -1630,13 +2169,11 @@ function getManagedReviewState(service, normalizedService, legacyCommandUsed) {
     service.name.trim().length === 0 ||
     service.name.trim() === service.id
   ) {
-    reasons.push(
-      "Service name still looks inherited from the older config key and may deserve a friendlier label.",
-    );
+    reasonKeys.push("review.nameInherited");
+    reasons.push(ren("review.nameInherited"));
   }
 
-  const normalizedReasons = uniqueList(reasons);
-  const needsReview = review?.needsReview === true || normalizedReasons.length > 0;
+  const needsReview = review?.needsReview === true || reasons.length > 0;
 
   if (!needsReview) {
     return null;
@@ -1645,7 +2182,28 @@ function getManagedReviewState(service, normalizedService, legacyCommandUsed) {
   return {
     needsReview: true,
     source: "legacy-config",
-    reasons: normalizedReasons,
+    reasons,
+    reasonKeys,
+  };
+}
+
+// Localize a stored review for display. Canonical entries carry a reasonKey
+// and are re-rendered in the active language; legacy or hand-written reasons
+// without keys are shown verbatim.
+// 将存储的复核状态本地化后用于展示。带 reasonKey 的规范条目按当前语言重新渲染；
+// 旧数据或手工编写、没有 key 的原因按原文显示。
+function localizeManagedReview(review) {
+  if (
+    !review ||
+    !Array.isArray(review.reasonKeys) ||
+    review.reasonKeys.length === 0
+  ) {
+    return review ?? null;
+  }
+
+  return {
+    ...review,
+    reasons: review.reasonKeys.map((key) => rt(key)),
   };
 }
 
@@ -1801,7 +2359,7 @@ async function loadManagedConfig() {
         description:
           typeof service.description === "string"
             ? service.description
-            : "Managed command registered for the Mewl desktop bridge.",
+            : rt("default.description"),
         kind: normalizeManagedServiceKind(service.kind, startCommand),
         startCommand,
         stopCommand:
@@ -1880,8 +2438,8 @@ async function loadManagedConfig() {
         detail:
           typeof profile.detail === "string"
             ? profile.detail
-            : "Managed startup profile for the Electron runtime bridge.",
-        cadence: typeof profile.cadence === "string" ? profile.cadence : "manual profile",
+            : rt("default.profileDetail"),
+        cadence: typeof profile.cadence === "string" ? profile.cadence : rt("default.profileCadence"),
         enabled: profile.enabled === true,
         action: profile.action === "stop" ? "stop" : "start",
         serviceIds: Array.isArray(profile.serviceIds)
@@ -2027,17 +2585,17 @@ async function handleManagedChildExit(service, serviceState, code, signal) {
   serviceState.startedAt = null;
   serviceState.lastExit =
     code === 0
-      ? "Clean exit from the Electron bridge"
+      ? rt("lastExit.clean")
       : signal
-        ? `Exited after signal ${signal}`
-        : `Exited with code ${code ?? "unknown"}`;
-  markHeartbeat(serviceState, "idle");
+        ? rt("lastExit.signal", { signal })
+        : rt("lastExit.code", { code: code ?? rt("lastExit.unknownCode") });
+  markHeartbeat(serviceState, rt("heartbeat.idle"));
   appendManagedLogEntry(
     serviceState.logs,
     code === 0 ? "stdout" : "stderr",
     createLogEntry(
       code === 0 ? "info" : "error",
-      `Managed service ${service.name} exited (${serviceState.lastExit}).`,
+      rt("log.serviceExited", { name: service.name, exit: serviceState.lastExit }),
     ),
     service,
   );
@@ -2046,9 +2604,9 @@ async function handleManagedChildExit(service, serviceState, code, signal) {
     await recordAutomationHistory({
       title:
         code === 0
-          ? `${service.name} exited`
-          : `${service.name} exited unexpectedly`,
-      detail: `Mewl recorded ${serviceState.lastExit.toLowerCase()}.`,
+          ? rt("history.exited", { name: service.name })
+          : rt("history.exitedUnexpectedly", { name: service.name }),
+      detail: rt("history.exitedDetail", { exit: serviceState.lastExit }),
       outcome: code === 0 ? "warning" : "error",
       source: "runtime",
       serviceId: service.id,
@@ -2059,8 +2617,11 @@ async function handleManagedChildExit(service, serviceState, code, signal) {
   if (!shouldRestart) {
     if (!wasStopping && service.restartPolicy !== "manual" && serviceState.policyRestartCount >= service.restartLimit) {
       await recordAutomationHistory({
-        title: `${service.name} reached restart policy limit`,
-        detail: `Automatic ${service.restartPolicy} restarts stopped after ${service.restartLimit} attempt${service.restartLimit === 1 ? "" : "s"} this session.`,
+        title: rt("history.restartLimitReached", { name: service.name }),
+        detail: rt("history.restartLimitDetail", {
+          policy: service.restartPolicy,
+          count: service.restartLimit,
+        }),
         outcome: "error",
         source: "policy",
         serviceId: service.id,
@@ -2073,8 +2634,12 @@ async function handleManagedChildExit(service, serviceState, code, signal) {
   serviceState.policyRestartCount += 1;
   serviceState.restartCount += 1;
   await recordAutomationHistory({
-    title: `${service.name} queued for automatic restart`,
-    detail: `Restart policy ${service.restartPolicy} is retrying launch attempt ${serviceState.policyRestartCount} of ${service.restartLimit}.`,
+    title: rt("history.queuedForRestart", { name: service.name }),
+    detail: rt("history.queuedDetail", {
+      policy: service.restartPolicy,
+      count: serviceState.policyRestartCount,
+      limit: service.restartLimit,
+    }),
     outcome: "warning",
     source: "policy",
     serviceId: service.id,
@@ -2085,20 +2650,22 @@ async function handleManagedChildExit(service, serviceState, code, signal) {
     await startManagedService(service, "policy");
   } catch (error) {
     serviceState.starting = false;
-    serviceState.lastExit = error instanceof Error ? error.message : "Automatic restart failed.";
+    serviceState.lastExit = error instanceof Error ? error.message : rt("lastExit.autoRestartFailed");
     appendManagedLogEntry(
       serviceState.logs,
       "stderr",
       createLogEntry(
         "error",
-        error instanceof Error ? error.message : `Automatic restart failed for ${service.name}.`,
+        error instanceof Error
+          ? error.message
+          : rt("log.autoRestartFailed", { name: service.name }),
       ),
       service,
     );
     await recordAutomationHistory({
-      title: `${service.name} automatic restart failed`,
+      title: rt("history.autoRestartFailed", { name: service.name }),
       detail:
-        error instanceof Error ? error.message : "The policy-based restart could not be completed.",
+        error instanceof Error ? error.message : rt("history.autoRestartFailedDetail"),
       outcome: "error",
       source: "policy",
       serviceId: service.id,
@@ -2112,37 +2679,40 @@ function attachChildListeners(service, serviceState, child) {
     appendManagedLogEntry(
       serviceState.logs,
       "stdout",
-      createLogEntry("info", String(chunk).trim() || "stdout updated"),
+      createLogEntry("info", String(chunk).trim() || rt("log.stdoutUpdated")),
       service,
     );
-    markHeartbeat(serviceState, "live");
+    markHeartbeat(serviceState, rt("heartbeat.live"));
   });
 
   child.stderr?.on("data", (chunk) => {
     appendManagedLogEntry(
       serviceState.logs,
       "stderr",
-      createLogEntry("warning", String(chunk).trim() || "stderr updated"),
+      createLogEntry("warning", String(chunk).trim() || rt("log.stderrUpdated")),
       service,
     );
-    markHeartbeat(serviceState, "live");
+    markHeartbeat(serviceState, rt("heartbeat.live"));
   });
 
   child.on("spawn", () => {
     serviceState.starting = false;
     serviceState.stopping = false;
     serviceState.startedAt = Date.now();
-    serviceState.lastExit = "No recent exit";
+    serviceState.lastExit = rt("lastExit.noRecent");
+    // A successful launch supersedes any earlier reserved-port failure.
+    // 启动成功即覆盖此前可能存在的保留端口失败标记。
+    serviceState.reservedPortsBlocked = false;
     if (serviceState.launchSource !== "policy") {
       serviceState.policyRestartCount = 0;
     }
-    markHeartbeat(serviceState, "just now");
+    markHeartbeat(serviceState, rt("heartbeat.justNow"));
     appendManagedLogEntry(
       serviceState.logs,
       "stdout",
       createLogEntry(
         "info",
-        `Managed service ${service.name} started with pid ${child.pid}.`,
+        rt("log.serviceStarted", { name: service.name, pid: child.pid }),
       ),
       service,
     );
@@ -2154,15 +2724,18 @@ function attachChildListeners(service, serviceState, child) {
     serviceState.stopping = false;
     serviceState.startedAt = null;
     serviceState.lastExit = error.message;
-    markHeartbeat(serviceState, "idle");
+    markHeartbeat(serviceState, rt("heartbeat.idle"));
     appendManagedLogEntry(
       serviceState.logs,
       "stderr",
-      createLogEntry("error", `Managed service ${service.name} failed to start: ${error.message}`),
+      createLogEntry(
+        "error",
+        rt("log.serviceStartFailed", { name: service.name, error: error.message }),
+      ),
       service,
     );
     void recordAutomationHistory({
-      title: `${service.name} failed to start`,
+      title: rt("history.startFailed", { name: service.name }),
       detail: error.message,
       outcome: "error",
       source: serviceState.launchSource === "policy" ? "policy" : serviceState.launchSource,
@@ -2225,13 +2798,23 @@ async function assertReservedPortsAvailable(service, ignoredPids = []) {
   );
 
   if (occupiedPorts.size > 0) {
-    portsLogger.warn("Reserved ports are occupied.", {
+    portsLogger.warn(rt("internal.reservedPortsOccupied"), {
       serviceId: service.id,
       serviceName: service.name,
       ports: Array.from(occupiedPorts),
     });
+    // Flag the state instead of matching the localized error text later:
+    // syncManagedServiceState needs to know why the last launch failed, and the
+    // sentence changes with the active locale.
+    // 用状态标记代替事后匹配本地化错误文本：syncManagedServiceState 需要
+    // 知道上次启动失败的原因，而错误句子会随当前语言变化。
+    getManagedState(service.id).reservedPortsBlocked = true;
     throw new Error(
-      `${service.name} could not start because reserved port${occupiedPorts.size === 1 ? "" : "s"} ${Array.from(occupiedPorts).join(", ")} ${occupiedPorts.size === 1 ? "is" : "are"} already in use.`,
+      rt("errors.portsOccupied", {
+        name: service.name,
+        ports: Array.from(occupiedPorts).join(", "),
+        count: occupiedPorts.size,
+      }),
     );
   }
 }
@@ -2245,7 +2828,7 @@ async function runManagedCommand(service, commandLine, label) {
   appendManagedLogEntry(
     serviceState.logs,
     "stdout",
-    createLogEntry("info", `${label} command requested for ${service.name}.`),
+    createLogEntry("info", rt("log.commandRequested", { label, name: service.name })),
     service,
   );
 
@@ -2274,7 +2857,7 @@ async function runManagedCommand(service, commandLine, label) {
       );
     }
 
-    markHeartbeat(serviceState, "just now");
+    markHeartbeat(serviceState, rt("heartbeat.justNow"));
     return;
   } catch (error) {
     const stdout = typeof error?.stdout === "string" ? error.stdout.trim() : "";
@@ -2295,7 +2878,7 @@ async function runManagedCommand(service, commandLine, label) {
 async function startManagedService(service, source = "manual") {
   const serviceState = getManagedState(service.id);
   if (isServiceRunning(serviceState)) {
-    return "Service is already running.";
+    return rt("errors.alreadyRunning");
   }
 
   serviceState.starting = true;
@@ -2308,7 +2891,7 @@ async function startManagedService(service, source = "manual") {
   appendManagedLogEntry(
     serviceState.logs,
     "stdout",
-    createLogEntry("info", `Start requested for ${service.name}.`),
+    createLogEntry("info", rt("log.startRequested", { name: service.name })),
     service,
   );
 
@@ -2328,21 +2911,21 @@ async function startManagedService(service, source = "manual") {
   serviceState.child = child;
   attachChildListeners(service, serviceState, child);
   await recordAutomationHistory({
-    title: `Started ${service.name}`,
+    title: rt("history.started", { name: service.name }),
     detail:
       source === "policy"
-        ? "Restart policy requested a new launch."
+        ? rt("history.startedDetailPolicy")
         : source === "profile"
-          ? "A startup profile launched this managed service."
+          ? rt("history.startedDetailProfile")
           : source === "runtime"
-            ? "The runtime boot sequence launched this managed service."
-            : "A managed start action launched this service.",
+            ? rt("history.startedDetailRuntime")
+            : rt("history.startedDetailManual"),
     outcome: "success",
     source,
     serviceId: service.id,
     serviceName: service.name,
   });
-  return `Started ${service.name}.`;
+  return rt("messages.started", { name: service.name });
 }
 
 function waitForChildExit(child) {
@@ -2402,24 +2985,24 @@ function syncManagedServiceState(service, rawProcesses, portMap) {
   serviceState.adoptedPid = adoptedProcess?.pid ?? null;
 
   if (adoptedProcess) {
-    if (
-      typeof serviceState.lastExit === "string" &&
-      serviceState.lastExit.includes("could not start because reserved port")
-    ) {
-      serviceState.lastExit = "Running after host reattachment";
+    if (serviceState.reservedPortsBlocked === true) {
+      serviceState.reservedPortsBlocked = false;
+      serviceState.lastExit = rt("lastExit.runningAfterReattach");
     }
 
-    const alreadyLoggedReattach = serviceState.logs.stdout.some(
-      (entry) => entry.text === `Mewl reattached ${service.name} from a live host process on pid ${adoptedProcess.pid}.`,
-    );
-
-    if (!alreadyLoggedReattach) {
+    // Dedup by pid in the service state, not by comparing the localized log
+    // text: the sentence changes with the active locale, and the tail-trimmed
+    // log can drop the original line entirely.
+    // 以 service state 中的 pid 去重，而不是比对本地化后的日志文本：
+    // 句子会随语言变化，且日志被裁剪后原文本可能已不存在。
+    if (serviceState.reattachLoggedPid !== adoptedProcess.pid) {
+      serviceState.reattachLoggedPid = adoptedProcess.pid;
       appendManagedLogEntry(
         serviceState.logs,
         "stdout",
         createLogEntry(
           "info",
-          `Mewl reattached ${service.name} from a live host process on pid ${adoptedProcess.pid}.`,
+          rt("log.reattached", { name: service.name, pid: adoptedProcess.pid }),
         ),
         service,
       );
@@ -2437,16 +3020,16 @@ function buildAutomationRules(services, profiles) {
     ...services.flatMap((service) => [
     {
       id: `service-autostart:${service.id}`,
-      title: `${service.name} autostart`,
-      detail: `Launch ${service.name} automatically when the managed workspace boots.`,
-      cadence: "session start",
+      title: rt("rules.autostartTitle", { name: service.name }),
+      detail: rt("rules.autostartDetail", { name: service.name }),
+      cadence: rt("rules.cadence.sessionStart"),
       enabled: service.autoStart,
     },
     {
       id: `service-watch:${service.id}`,
-      title: `${service.name} watch ports`,
-      detail: `Include ${service.name} in watched binding scans and collision summaries.`,
-      cadence: "live scan",
+      title: rt("rules.watchTitle", { name: service.name }),
+      detail: rt("rules.watchDetail", { name: service.name }),
+      cadence: rt("rules.cadence.liveScan"),
       enabled: service.watchPorts,
     },
     ]),
@@ -2468,10 +3051,10 @@ async function stopManagedService(service, source = "manual") {
     appendManagedLogEntry(
       serviceState.logs,
       "stdout",
-      createLogEntry("warning", `Stop requested for ${service.name}.`),
+      createLogEntry("warning", rt("log.stopRequested", { name: service.name })),
       service,
     );
-    await runManagedCommand(service, stopCommand, "Stop");
+    await runManagedCommand(service, stopCommand, rt("action.stop"));
 
     if (serviceState.child && serviceState.child.exitCode === null) {
       await Promise.race([waitForChildExit(serviceState.child), delay(4000)]);
@@ -2480,31 +3063,31 @@ async function stopManagedService(service, source = "manual") {
     }
 
     await recordAutomationHistory({
-      title: `Stopped ${service.name}`,
+      title: rt("history.stopped", { name: service.name }),
       detail:
         source === "profile"
-          ? "A quiet-mode profile ran the configured stop flow."
+          ? rt("history.stoppedDetailProfile")
           : service.kind === "docker" && !service.stopCommand
-            ? "Mewl derived a Docker-aware stop flow from the saved launch command."
-            : "Mewl ran the configured stop flow for this service.",
+            ? rt("history.stoppedDetailDocker")
+            : rt("history.stoppedDetailDefault"),
       outcome: "success",
       source,
       serviceId: service.id,
       serviceName: service.name,
     });
 
-    return `Stopped ${service.name}.`;
+    return rt("messages.stopped", { name: service.name });
   }
 
   if (!isServiceRunning(serviceState)) {
-    return "Service is already stopped.";
+    return rt("errors.alreadyStopped");
   }
 
   serviceState.stopping = true;
   appendManagedLogEntry(
     serviceState.logs,
     "stdout",
-    createLogEntry("warning", `Stop requested for ${service.name}.`),
+    createLogEntry("warning", rt("log.stopRequested", { name: service.name })),
     service,
   );
 
@@ -2539,32 +3122,36 @@ async function stopManagedService(service, source = "manual") {
       await waitForPidExit(adoptedPid, 1200);
     } catch (_error) {
       // The adopted process exited during the graceful drain window.
+      // 被挂接的进程在优雅排空窗口内自行退出了。
     }
 
     serviceState.adoptedPid = null;
-    serviceState.lastExit = "Stopped from the Electron bridge after host reattachment";
-    markHeartbeat(serviceState, "idle");
+    serviceState.lastExit = rt("lastExit.stoppedAfterReattach");
+    markHeartbeat(serviceState, rt("heartbeat.idle"));
     appendManagedLogEntry(
       serviceState.logs,
       "stdout",
-      createLogEntry("info", `Managed host process ${service.name} was terminated after reattachment.`),
+      createLogEntry(
+        "info",
+        rt("log.terminatedAfterReattach", { name: service.name }),
+      ),
       service,
     );
   }
 
   await recordAutomationHistory({
-    title: `Stopped ${service.name}`,
+    title: rt("history.stopped", { name: service.name }),
     detail:
       source === "profile"
-        ? "A quiet-mode profile parked the tracked process."
-        : "Mewl stopped the tracked process for this managed service.",
+        ? rt("history.stoppedDetailParked")
+        : rt("history.stoppedDetailTracked"),
     outcome: "success",
     source,
     serviceId: service.id,
     serviceName: service.name,
   });
 
-  return `Stopped ${service.name}.`;
+  return rt("messages.stopped", { name: service.name });
 }
 
 async function restartManagedService(service, source = "manual") {
@@ -2572,16 +3159,16 @@ async function restartManagedService(service, source = "manual") {
   serviceState.restartCount += 1;
 
   if (service.restartCommand) {
-    await runManagedCommand(service, service.restartCommand, "Restart");
+    await runManagedCommand(service, service.restartCommand, rt("action.restart"));
     await recordAutomationHistory({
-      title: `Restarted ${service.name}`,
-      detail: "Mewl ran the configured restart command for this managed service.",
+      title: rt("history.restarted", { name: service.name }),
+      detail: rt("history.restartedDetailCommand"),
       outcome: "success",
       source,
       serviceId: service.id,
       serviceName: service.name,
     });
-    return `Restarted ${service.name}.`;
+    return rt("messages.restarted", { name: service.name });
   }
 
   if (isServiceRunning(serviceState)) {
@@ -2590,17 +3177,17 @@ async function restartManagedService(service, source = "manual") {
 
   await startManagedService(service, source);
   await recordAutomationHistory({
-    title: `Restarted ${service.name}`,
+    title: rt("history.restarted", { name: service.name }),
     detail:
       source === "policy"
-        ? "Restart policy recycled this managed service after an exit."
-        : "Mewl completed the fallback stop/start restart flow.",
+        ? rt("history.restartedDetailPolicy")
+        : rt("history.restartedDetailFallback"),
     outcome: "success",
     source,
     serviceId: service.id,
     serviceName: service.name,
   });
-  return `Restarted ${service.name}.`;
+  return rt("messages.restarted", { name: service.name });
 }
 
 async function killObservedProcess(processId) {
@@ -2608,12 +3195,12 @@ async function killObservedProcess(processId) {
 
   const pidMatch = /^pid-(\d+)$/.exec(processId);
   if (!pidMatch) {
-    throw new Error("The observed kill action only supports live observed process rows.");
+    throw new Error(rt("errors.killOnlyObserved"));
   }
 
   const pid = Number(pidMatch[1]);
   if (!Number.isInteger(pid) || pid <= 0) {
-    throw new Error("The observed process pid is invalid.");
+    throw new Error(rt("errors.killInvalidPid"));
   }
 
   const [rawProcesses, config] = await Promise.all([readUserProcesses(), loadManagedConfig()]);
@@ -2629,16 +3216,14 @@ async function killObservedProcess(processId) {
   }
 
   if (managedPids.has(pid)) {
-    throw new Error(
-      "This pid belongs to a managed service. Use the managed start, stop, or restart controls instead.",
-    );
+    throw new Error(rt("errors.killManagedPid"));
   }
 
   const observedProcess = rawProcesses.find(
     (processRow) => processRow.pid === pid && !isHelperProcessRow(processRow),
   );
   if (!observedProcess) {
-    throw new Error("That observed process is no longer running.");
+    throw new Error(rt("errors.processGone"));
   }
 
   process.kill(pid, "SIGTERM");
@@ -2650,11 +3235,15 @@ async function killObservedProcess(processId) {
     await waitForPidExit(pid, 1200);
   } catch (_error) {
     // The observed process exited during the graceful drain window.
+    // 观测进程在优雅排空窗口内自行退出了。
   }
 
   return {
     snapshot: await hydrateRuntimeSnapshot(),
-    message: `Terminated observed process ${path.basename(observedProcess.command)} (pid ${pid}).`,
+    message: rt("messages.killedObserved", {
+      name: path.basename(observedProcess.command),
+      pid,
+    }),
   };
 }
 
@@ -2672,7 +3261,7 @@ async function initializeManagedServices() {
     } catch (error) {
       const serviceState = getManagedState(service.id);
       serviceState.starting = false;
-      serviceState.lastExit = error instanceof Error ? error.message : "Autostart failed.";
+      serviceState.lastExit = error instanceof Error ? error.message : rt("lastExit.autostartFailed");
       appendManagedLogEntry(
         serviceState.logs,
         "stderr",
@@ -2680,13 +3269,13 @@ async function initializeManagedServices() {
           "error",
           error instanceof Error
             ? error.message
-            : `Autostart failed for ${service.name}.`,
+            : rt("log.autostartFailed", { name: service.name }),
         ),
         service,
       );
       await recordAutomationHistory({
-        title: `${service.name} autostart failed`,
-        detail: error instanceof Error ? error.message : "Autostart failed.",
+        title: rt("history.autostartFailed", { name: service.name }),
+        detail: error instanceof Error ? error.message : rt("lastExit.autostartFailed"),
         outcome: "error",
         source: "runtime",
         serviceId: service.id,
@@ -2704,7 +3293,7 @@ async function initializeManagedServices() {
         } catch (error) {
           const serviceState = getManagedState(service.id);
           serviceState.starting = false;
-          serviceState.lastExit = error instanceof Error ? error.message : "Profile boot failed.";
+          serviceState.lastExit = error instanceof Error ? error.message : rt("lastExit.profileBootFailed");
           appendManagedLogEntry(
             serviceState.logs,
             "stderr",
@@ -2712,13 +3301,13 @@ async function initializeManagedServices() {
               "error",
               error instanceof Error
                 ? error.message
-                : `Profile boot failed for ${service.name}.`,
+                : rt("history.profileStartFailed", { name: service.name }),
             ),
             service,
           );
           await recordAutomationHistory({
-            title: `${service.name} profile start failed`,
-            detail: error instanceof Error ? error.message : "Profile boot failed.",
+            title: rt("history.profileStartFailed", { name: service.name }),
+            detail: error instanceof Error ? error.message : rt("lastExit.profileBootFailed"),
             outcome: "error",
             source: "profile",
             serviceId: service.id,
@@ -2791,8 +3380,8 @@ function buildAlerts(processes, ports, metrics, services, history) {
     alerts.push(
       createAlert({
         id: "live-alert-conflicts",
-        title: "Port conflict detected",
-        detail: `${conflictPorts.length} live binding${conflictPorts.length === 1 ? "" : "s"} share a reserved port.`,
+        title: rt("alerts.portConflict.title"),
+        detail: rt("alerts.portConflict.detail", { count: conflictPorts.length }),
         severity: "critical",
         category: "ports",
       }),
@@ -2803,8 +3392,8 @@ function buildAlerts(processes, ports, metrics, services, history) {
     alerts.push(
       createAlert({
         id: "live-alert-public",
-        title: "Public listeners exposed",
-        detail: `${publicPorts.length} binding${publicPorts.length === 1 ? "" : "s"} are reachable beyond localhost.`,
+        title: rt("alerts.publicExposed.title"),
+        detail: rt("alerts.publicExposed.detail", { count: publicPorts.length }),
         severity: "warning",
         category: "ports",
       }),
@@ -2815,8 +3404,8 @@ function buildAlerts(processes, ports, metrics, services, history) {
     alerts.push(
       createAlert({
         id: "live-alert-cpu",
-        title: "Hot process on the host",
-        detail: `${hotProcess.name} is currently leading CPU usage at ${hotProcess.cpu}%.`,
+        title: rt("alerts.hotProcess.title"),
+        detail: rt("alerts.hotProcess.detail", { name: hotProcess.name, cpu: hotProcess.cpu }),
         severity: "warning",
         serviceId: hotProcess.id,
         serviceName: hotProcess.name,
@@ -2829,8 +3418,8 @@ function buildAlerts(processes, ports, metrics, services, history) {
     alerts.push(
       createAlert({
         id: "live-alert-memory",
-        title: "Memory pressure is elevated",
-        detail: `Host memory pressure is currently ${metrics.memory.value}%.`,
+        title: rt("alerts.memoryPressure.title"),
+        detail: rt("alerts.memoryPressure.detail", { value: metrics.memory.value }),
         severity: "warning",
         category: "resources",
       }),
@@ -2841,8 +3430,10 @@ function buildAlerts(processes, ports, metrics, services, history) {
     alerts.push(
       createAlert({
         id: "live-alert-gpu",
-        title: "GPU load is elevated",
-        detail: `Host GPU load is currently ${metrics.gpu.displayValue ?? `${metrics.gpu.value}%`}.`,
+        title: rt("alerts.gpuLoad.title"),
+        detail: rt("alerts.gpuLoad.detail", {
+          value: metrics.gpu.displayValue ?? `${metrics.gpu.value}%`,
+        }),
         severity: "warning",
         category: "resources",
       }),
@@ -2853,8 +3444,8 @@ function buildAlerts(processes, ports, metrics, services, history) {
     alerts.push(
       createAlert({
         id: "live-alert-managed",
-        title: "Managed service is parked",
-        detail: `${stoppedManaged[0].name} is registered with Mewl and ready to start from the desktop bridge.`,
+        title: rt("alerts.managedParked.title"),
+        detail: rt("alerts.managedParked.detail", { name: stoppedManaged[0].name }),
         severity: "info",
         serviceId: stoppedManaged[0].id,
         serviceName: stoppedManaged[0].name,
@@ -2867,11 +3458,11 @@ function buildAlerts(processes, ports, metrics, services, history) {
     alerts.push(
       createAlert({
         id: `live-alert-spike-${spike.id}`,
-        title: "Managed service is running hot",
+        title: rt("alerts.managedHot.title"),
         detail:
           spike.cpu >= 75
-            ? `${spike.name} is drawing ${spike.cpu}% CPU right now.`
-            : `${spike.name} is holding ${spike.memory} MB and may need attention.`,
+            ? rt("alerts.managedHot.cpuDetail", { name: spike.name, cpu: spike.cpu })
+            : rt("alerts.managedHot.memoryDetail", { name: spike.name, memory: spike.memory }),
         severity: spike.cpu >= 85 || spike.memory >= 1800 ? "critical" : "warning",
         serviceId: spike.id,
         serviceName: spike.name,
@@ -2884,8 +3475,12 @@ function buildAlerts(processes, ports, metrics, services, history) {
     alerts.push(
       createAlert({
         id: `live-alert-crash-loop-${loop.service.id}`,
-        title: "Managed service may be crash looping",
-        detail: `${loop.service.name} logged ${loop.recentFailures} recent failure${loop.recentFailures === 1 ? "" : "s"} and ${loop.recentPolicyRetries} policy retr${loop.recentPolicyRetries === 1 ? "y" : "ies"} in the last two hours.`,
+        title: rt("alerts.crashLoop.title"),
+        detail: rt("alerts.crashLoop.detail", {
+          name: loop.service.name,
+          failures: loop.recentFailures,
+          retries: loop.recentPolicyRetries,
+        }),
         severity: "critical",
         serviceId: loop.service.id,
         serviceName: loop.service.name,
@@ -2898,8 +3493,11 @@ function buildAlerts(processes, ports, metrics, services, history) {
     alerts.push(
       createAlert({
         id: `live-alert-orphaned-port-${orphaned.service.id}-${orphaned.port}`,
-        title: "Reserved port is held by another process",
-        detail: `${orphaned.service.name} expects port ${orphaned.port}, but the live binding currently belongs to a different process.`,
+        title: rt("alerts.orphanedPort.title"),
+        detail: rt("alerts.orphanedPort.detail", {
+          name: orphaned.service.name,
+          port: orphaned.port,
+        }),
         severity: "critical",
         serviceId: orphaned.service.id,
         serviceName: orphaned.service.name,
@@ -2912,8 +3510,8 @@ function buildAlerts(processes, ports, metrics, services, history) {
     alerts.push(
       createAlert({
         id: "live-alert-quiet",
-        title: "Live host snapshot is healthy",
-        detail: "No immediate port conflicts or pressure spikes were detected in the latest scan.",
+        title: rt("alerts.healthy.title"),
+        detail: rt("alerts.healthy.detail"),
         severity: "info",
         category: "runtime",
       }),
@@ -2924,7 +3522,7 @@ function buildAlerts(processes, ports, metrics, services, history) {
 }
 
 async function hydrateRuntimeSnapshot() {
-  runtimeLogger.debug("Hydrating runtime snapshot.");
+  runtimeLogger.debug(rt("internal.hydrating"));
   await logBroker.ensureStarted();
   await initializeManagedServices();
 
@@ -2984,7 +3582,7 @@ async function hydrateRuntimeSnapshot() {
     const record = {
       id: service.id,
       name: service.name,
-      group: service.group,
+      group: localizeGroup(service.group),
       description: service.description,
       command: service.startCommand,
       cwd: resolveServiceCwd(service.cwd),
@@ -3002,7 +3600,7 @@ async function hydrateRuntimeSnapshot() {
       uptime: liveProcess ? formatElapsed(liveProcess.elapsed) : formatManagedElapsed(serviceState.startedAt),
       restarts: serviceState.restartCount,
       lastExit: serviceState.lastExit,
-      lastHeartbeat: liveProcess ? "live" : serviceState.lastHeartbeat,
+      lastHeartbeat: liveProcess ? rt("heartbeat.live") : serviceState.lastHeartbeat,
       autoStart: service.autoStart,
       watchPorts: service.watchPorts,
       restartPolicy: service.restartPolicy,
@@ -3010,7 +3608,7 @@ async function hydrateRuntimeSnapshot() {
       managed: true,
       titleColor: service.titleColor,
       icon: service.icon,
-      review: service.review ?? null,
+      review: localizeManagedReview(service.review),
       logs: serviceState.logs,
     };
 
@@ -3036,7 +3634,7 @@ async function hydrateRuntimeSnapshot() {
     .sort((left, right) => right.cpu + right.memoryMb / 25 - (left.cpu + left.memoryMb / 25))
     .map((processRow) => {
       const runtime = normalizeRuntime(processRow.command, processRow.args);
-      const group = normalizeGroup(runtime, processRow.cwd);
+      const group = localizeGroup(normalizeGroup(runtime, processRow.cwd));
       const processPorts = (portMap.get(processRow.pid) ?? []).map((binding) => binding.port);
       const status = normalizeStatus(processRow.state);
       const processRecord = {
@@ -3044,10 +3642,10 @@ async function hydrateRuntimeSnapshot() {
         name: path.basename(processRow.command),
         group,
         description: processRow.cwd
-          ? `${runtime} process discovered from ${processRow.cwd}.`
-          : `${runtime} process discovered from the live host scan.`,
+          ? rt("processes.description.discoveredCwd", { runtime, cwd: processRow.cwd })
+          : rt("processes.description.discovered", { runtime }),
         command: processRow.args,
-        cwd: processRow.cwd || "unknown",
+        cwd: processRow.cwd || rt("uptime.unknown"),
         runtime,
         kind: normalizeManagedServiceKind(runtime === "docker" ? "docker" : "command", processRow.args),
         status,
@@ -3058,8 +3656,8 @@ async function hydrateRuntimeSnapshot() {
         network: 0,
         uptime: formatElapsed(processRow.elapsed),
         restarts: 0,
-        lastExit: "Exit history is not available for discovered live processes.",
-        lastHeartbeat: "live",
+        lastExit: rt("processes.lastExitDiscovered"),
+        lastHeartbeat: rt("heartbeat.live"),
         autoStart: false,
         watchPorts: processPorts.length > 0,
         restartPolicy: "manual",
@@ -3069,12 +3667,12 @@ async function hydrateRuntimeSnapshot() {
           stdout: [
             createLogEntry(
               "info",
-              `Discovered ${processRow.args} from the runtime scan.`,
+              rt("log.discovered", { args: processRow.args }),
             ),
           ],
           stderr:
             status === "degraded"
-              ? [createLogEntry("warning", "This process is reporting a non-running kernel state.")]
+              ? [createLogEntry("warning", rt("log.degradedKernel"))]
               : [],
         },
       };
@@ -3112,10 +3710,10 @@ async function hydrateRuntimeSnapshot() {
         status,
         note:
           status === "conflict"
-            ? "Multiple live processes are currently bound to this host port."
+            ? rt("ports.note.conflict")
             : exposure === "public"
-              ? "Listener is reachable beyond the loopback interface."
-              : "Listener was discovered from the live host scan.",
+              ? rt("ports.note.public")
+              : rt("ports.note.discovered"),
       };
     })
     .sort((left, right) => left.port - right.port);
@@ -3123,34 +3721,39 @@ async function hydrateRuntimeSnapshot() {
   const metrics = {
     cpu: {
       id: "cpu",
-      label: "Host CPU",
+      label: rt("metrics.cpu.label"),
       value: cpuPercent,
-      detail: "Live sample from CPU polling.",
+      detail: rt("metrics.cpu.detail"),
     },
     memory: {
       id: "memory",
-      label: "Memory Pressure",
+      label: rt("metrics.memory.label"),
       value: memoryPercent,
-      detail: `Using ${Math.floor((os.totalmem() - os.freemem()) / oneMegabyte)} MB of ${Math.floor(os.totalmem() / oneMegabyte)} MB.`,
+      detail: rt("metrics.memory.detail", {
+        used: Math.floor((os.totalmem() - os.freemem()) / oneMegabyte),
+        total: Math.floor(os.totalmem() / oneMegabyte),
+      }),
     },
     disk: {
       id: "disk",
-      label: "Disk Activity",
+      label: rt("metrics.disk.label"),
       value: diskPercent,
-      detail: "Root filesystem usage.",
+      detail: rt("metrics.disk.detail"),
     },
     network: {
       id: "network",
-      label: "Network Chatter",
+      label: rt("metrics.network.label"),
       value: networkUsage.percent,
-      detail: `Observed ${formatThroughput(networkUsage.bytesPerSecond)} across active interfaces.`,
+      detail: rt("metrics.network.detail", {
+        throughput: formatThroughput(networkUsage.bytesPerSecond),
+      }),
     },
     gpu: {
       id: "gpu",
-      label: "GPU Load",
+      label: rt("metrics.gpu.label"),
       value: gpuUsage.percent,
       detail: gpuUsage.detail,
-      displayValue: gpuUsage.available ? `${gpuUsage.percent}%` : "Unavailable",
+      displayValue: gpuUsage.available ? `${gpuUsage.percent}%` : rt("metrics.gpu.unavailable"),
       available: gpuUsage.available,
     },
   };
@@ -3213,18 +3816,18 @@ async function hydrateRuntimeSnapshot() {
 
 async function performProcessAction(action, processId) {
   await initializeManagedServices();
-  processManagerLogger.info("Performing process action.", { action, processId });
+  processManagerLogger.info(rt("internal.performingAction"), { action, processId });
 
   if (action === "scan") {
-    runtimeLogger.debug("Running live host scan on demand.");
+    runtimeLogger.debug(rt("internal.onDemandScan"));
     return {
       snapshot: await hydrateRuntimeSnapshot(),
-      message: "Live host scan completed.",
+      message: rt("messages.scanCompleted"),
     };
   }
 
   if (action === "kill") {
-    processManagerLogger.warn("Observed process kill requested.", { processId });
+    processManagerLogger.warn(rt("internal.killRequested"), { processId });
     return killObservedProcess(processId);
   }
 
@@ -3232,7 +3835,7 @@ async function performProcessAction(action, processId) {
   const service = services.find((item) => item.id === processId);
 
   if (!service) {
-    throw new Error("Only configured Mewl-managed services can be controlled from the desktop bridge.");
+    throw new Error(rt("errors.serviceNotConfigured"));
   }
 
   let message;
@@ -3243,7 +3846,7 @@ async function performProcessAction(action, processId) {
   } else if (action === "restart") {
     message = await restartManagedService(service);
   } else {
-    throw new Error(`Unsupported action: ${action}`);
+    throw new Error(rt("errors.unsupportedAction", { action }));
   }
 
   return {
@@ -3253,12 +3856,12 @@ async function performProcessAction(action, processId) {
 }
 
 async function updateManagedService(processId, updates) {
-  processManagerLogger.info("Updating managed service.", { processId });
+  processManagerLogger.info(rt("internal.updatingService"), { processId });
   const config = await loadManagedConfig();
   const serviceIndex = config.services.findIndex((service) => service.id === processId);
 
   if (serviceIndex === -1) {
-    throw new Error("Only configured Mewl-managed services can be edited from the desktop bridge.");
+    throw new Error(rt("errors.serviceNotEditable"));
   }
 
   const previousService = config.services[serviceIndex];
@@ -3268,7 +3871,7 @@ async function updateManagedService(processId, updates) {
       : previousService.startCommand;
 
   if (!startCommand) {
-    throw new Error("Managed services need a start command before they can be saved.");
+    throw new Error(rt("errors.startCommandRequired"));
   }
 
   const nextService = {
@@ -3326,13 +3929,13 @@ async function updateManagedService(processId, updates) {
     snapshot: await hydrateRuntimeSnapshot(),
     message:
       updates.clearReview === true
-        ? `${nextService.name} no longer needs legacy cleanup review.`
-        : `${nextService.name} settings updated.`,
+        ? rt("messages.reviewCleared", { name: nextService.name })
+        : rt("messages.settingsUpdated", { name: nextService.name }),
   };
 }
 
 async function createManagedService(service) {
-  processManagerLogger.info("Creating managed service draft.", {
+  processManagerLogger.info(rt("internal.creatingDraft"), {
     name: typeof service?.name === "string" ? service.name : "unknown",
   });
   const config = await loadManagedConfig();
@@ -3341,7 +3944,7 @@ async function createManagedService(service) {
     typeof service.startCommand === "string" ? service.startCommand.trim() : "";
 
   if (!name || !startCommand) {
-    throw new Error("Managed services need both a name and a start command.");
+    throw new Error(rt("errors.nameAndStartRequired"));
   }
 
   const cwd =
@@ -3355,7 +3958,7 @@ async function createManagedService(service) {
     description:
       typeof service.description === "string" && service.description.trim().length > 0
         ? service.description.trim()
-        : "Managed command registered for the Mewl desktop bridge.",
+        : rt("default.description"),
     kind: normalizeManagedServiceKind(service.kind, startCommand),
     startCommand,
     stopCommand:
@@ -3383,7 +3986,7 @@ async function createManagedService(service) {
   if (existingService) {
     return {
       snapshot: await hydrateRuntimeSnapshot(),
-      message: `${existingService.name} is already managed by Mewl.`,
+      message: rt("messages.alreadyManaged", { name: existingService.name }),
     };
   }
 
@@ -3392,18 +3995,18 @@ async function createManagedService(service) {
 
   return {
     snapshot: await hydrateRuntimeSnapshot(),
-    message: `${nextService.name} is now managed by Mewl.`,
+    message: rt("messages.nowManaged", { name: nextService.name }),
   };
 }
 
 async function removeManagedService(processId) {
-  processManagerLogger.warn("Removing managed service.", { processId });
+  processManagerLogger.warn(rt("internal.removingService"), { processId });
   const config = await loadManagedConfig();
   const serviceIndex = config.services.findIndex((service) => service.id === processId);
   if (serviceIndex === -1) {
     return {
       snapshot: await hydrateRuntimeSnapshot(),
-      message: "This managed service was already removed.",
+      message: rt("messages.alreadyRemoved"),
     };
   }
 
@@ -3420,12 +4023,12 @@ async function removeManagedService(processId) {
 
   return {
     snapshot: await hydrateRuntimeSnapshot(),
-    message: `${removedService.name} is now observed only.`,
+    message: rt("messages.nowObservedOnly", { name: removedService.name }),
   };
 }
 
 async function applyAutomationRule(ruleId, enabled) {
-  automationLogger.info("Applying automation rule.", { ruleId, enabled });
+  automationLogger.info(rt("internal.applyingRule"), { ruleId, enabled });
   const config = await loadManagedConfig();
 
   if (ruleId.startsWith("service-autostart:")) {
@@ -3435,10 +4038,12 @@ async function applyAutomationRule(ruleId, enabled) {
     const result = await updateManagedService(processId, { autoStart: enabled });
     if (service) {
       await recordAutomationHistory({
-        title: `${service.name} autostart ${enabled ? "enabled" : "disabled"}`,
-        detail: enabled
-          ? "This managed service will now launch when the desktop runtime boots."
-          : "This managed service will no longer launch automatically on boot.",
+        title: rt(enabled ? "history.autostartEnabled" : "history.autostartDisabled", {
+          name: service.name,
+        }),
+        detail: rt(
+          enabled ? "history.autostartEnabledDetail" : "history.autostartDisabledDetail",
+        ),
         outcome: "success",
         source: "manual",
         serviceId: service.id,
@@ -3455,10 +4060,10 @@ async function applyAutomationRule(ruleId, enabled) {
     const result = await updateManagedService(processId, { watchPorts: enabled });
     if (service) {
       await recordAutomationHistory({
-        title: `${service.name} port watch ${enabled ? "enabled" : "disabled"}`,
-        detail: enabled
-          ? "Mewl will include this service in watched port scans."
-          : "Mewl will stop tracking this service during watched port scans.",
+        title: rt(enabled ? "history.watchEnabled" : "history.watchDisabled", {
+          name: service.name,
+        }),
+        detail: rt(enabled ? "history.watchEnabledDetail" : "history.watchDisabledDetail"),
         outcome: "success",
         source: "manual",
         serviceId: service.id,
@@ -3473,7 +4078,7 @@ async function applyAutomationRule(ruleId, enabled) {
     const profileIndex = config.profiles.findIndex((profile) => profile.id === profileId);
 
     if (profileIndex === -1) {
-      throw new Error("The requested startup profile was not found in mewl.services.json.");
+      throw new Error(rt("errors.profileNotFound"));
     }
 
     const profile = { ...config.profiles[profileIndex], enabled };
@@ -3496,21 +4101,23 @@ async function applyAutomationRule(ruleId, enabled) {
     }
 
     await recordAutomationHistory({
-      title: `${profile.title} ${enabled ? "enabled" : "disabled"}`,
-      detail: enabled
-        ? "The profile was applied to its managed services."
-        : "The profile was disabled for future automation runs.",
+      title: rt(enabled ? "history.profileEnabled" : "history.profileDisabled", {
+        title: profile.title,
+      }),
+      detail: rt(enabled ? "history.profileEnabledDetail" : "history.profileDisabledDetail"),
       outcome: "success",
       source: "profile",
     });
 
     return {
       snapshot: await hydrateRuntimeSnapshot(),
-      message: `${profile.title} ${enabled ? "enabled" : "disabled"}.`,
+      message: rt(enabled ? "messages.profileEnabled" : "messages.profileDisabled", {
+        title: profile.title,
+      }),
     };
   }
 
-  throw new Error("This automation rule is not managed by the Electron bridge.");
+  throw new Error(rt("errors.ruleNotManaged"));
 }
 
 async function shutdownManagedServices() {
@@ -3530,6 +4137,7 @@ module.exports = {
   hydrateRuntimeSnapshot,
   performProcessAction,
   setRuntimeLogBatchListener,
+  setRuntimeLocale,
   updateManagedService,
   createManagedService,
   removeManagedService,

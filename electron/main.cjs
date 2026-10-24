@@ -5,6 +5,7 @@ const {
   performProcessAction,
   shutdownManagedServices,
   setRuntimeLogBatchListener,
+  setRuntimeLocale,
   updateManagedService,
   createManagedService,
   removeManagedService,
@@ -58,6 +59,9 @@ function createWindow() {
 
 async function bootstrap() {
   ipcMain.handle("mewl:hydrate-runtime", async () => hydrateRuntimeSnapshot());
+  ipcMain.handle("mewl:set-locale", async (_event, payload) => {
+    setRuntimeLocale(payload?.locale);
+  });
   ipcMain.handle("mewl:process-action", async (_event, payload) =>
     performProcessAction(payload.action, payload.processId),
   );

@@ -1,3 +1,6 @@
+import type { TranslationKey } from "../i18n/en";
+import { MewlLocalizedError } from "../i18n/localized-error";
+import type { Locale } from "../i18n/types";
 import {
   type ManagedServiceDraft,
   type ManagedServiceUpdate,
@@ -15,11 +18,15 @@ export type RuntimeCapability =
   | "host-metrics"
   | "secure-command-execution";
 
+// Display strings on the descriptor are translation keys, resolved by the
+// renderer through t(), so the locale switcher also re-renders runtime chrome.
+// 描述符上的展示字符串都是翻译键，由渲染层通过 t() 解析，
+// 因此切换语言后运行时相关的界面文案也会随之刷新。
 export type RuntimeSourceDescriptor = {
   id: RuntimeSourceId;
-  label: string;
-  badgeLabel: string;
-  detail: string;
+  labelKey: TranslationKey;
+  badgeLabelKey: TranslationKey | null;
+  detailKey: TranslationKey;
   hostLayer: HostLayerChoice;
   availability: "active" | "unavailable";
   capabilities: RuntimeCapability[];
@@ -27,6 +34,7 @@ export type RuntimeSourceDescriptor = {
 
 export type MewlHostBridge = {
   hydrateRuntimeSnapshot: () => Promise<RuntimeSnapshot>;
+  setLocale?: (locale: Locale) => Promise<void>;
   subscribeToLogs?: (listener: (events: UnifiedLogEvent[]) => void) => () => void;
   performProcessAction?: (
     action: "start" | "stop" | "restart" | "scan" | "kill",
@@ -46,6 +54,9 @@ export type RuntimeActionResult = {
   message: string;
 };
 
+// Design notes for the chosen host layer. These strings are internal
+// documentation, not rendered UI, so they stay English-only.
+// 所选宿主层的设计说明。这些字符串属于内部文档而非渲染 UI，因此保持纯英文。
 export const chosenHostLayer = {
   id: "electron" as const,
   label: "Electron",
@@ -81,10 +92,9 @@ export function getRuntimeSourceDescriptor(): RuntimeSourceDescriptor {
   if (bridge) {
     return {
       id: "electron",
-      label: "Electron bridge",
-      badgeLabel: "",
-      detail:
-        "The renderer is connected to the Electron preload bridge and is reading live host state.",
+      labelKey: "runtime.electron.label",
+      badgeLabelKey: null,
+      detailKey: "runtime.electron.detail",
       hostLayer: chosenHostLayer.id,
       availability: "active",
       capabilities: [
@@ -98,10 +108,9 @@ export function getRuntimeSourceDescriptor(): RuntimeSourceDescriptor {
 
   return {
     id: "desktop-required",
-    label: "Desktop bridge required",
-    badgeLabel: "desktop required",
-    detail:
-      "Mewl now requires the Electron desktop bridge and does not expose a browser-only runtime fallback.",
+    labelKey: "runtime.desktopRequired.label",
+    badgeLabelKey: "runtime.desktopRequired.badge",
+    detailKey: "runtime.desktopRequired.detail",
     hostLayer: chosenHostLayer.id,
     availability: "unavailable",
     capabilities: [],
@@ -115,7 +124,9 @@ export async function hydrateRuntimeSnapshot(): Promise<RuntimeSnapshot> {
     return bridge.hydrateRuntimeSnapshot();
   }
 
-  throw new Error(
-    "Mewl requires the Electron desktop bridge. Launch the app with npm run dev:desktop or npm run desktop.",
-  );
+  // Thrown before any React context exists, so the error carries a key that
+  // App resolves through t() when it renders the failure panel.
+  // 该错误在 React 上下文就绪之前抛出，因此只携带翻译键，
+  // 由 App 在渲染失败面板时通过 t() 解析。
+  throw new MewlLocalizedError("error.bridgeRequired");
 }

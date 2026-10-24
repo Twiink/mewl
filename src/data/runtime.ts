@@ -43,7 +43,13 @@ export type ManagedServiceKind = "command" | "script" | "docker";
 export type ManagedServiceReview = {
   needsReview: boolean;
   source: "legacy-config";
+  // reasons is already localized for display by the main process. reasonKeys
+  // are the canonical (locale-independent) template keys behind those reasons,
+  // persisted so stored state never churns when the UI language changes.
+  // reasons 已由主进程按展示语言本地化。reasonKeys 是背后与语言无关的规范
+  // 模板键，随状态持久化，保证切换界面语言时不会引起存储内容变动。
   reasons: string[];
+  reasonKeys?: string[];
 };
 
 export type RestartPolicy = "manual" | "on-failure" | "always";

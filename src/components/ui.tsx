@@ -1,16 +1,27 @@
 import { type CSSProperties, type ComponentType, type PointerEvent, useRef } from "react";
 import type { LucideProps } from "lucide-react";
 import { Search } from "lucide-react";
+import { useI18n, type TranslationKey } from "../i18n";
 
 type LucideIcon = ComponentType<LucideProps>;
 
 type StatusTone = "online" | "warning" | "offline" | "starting";
 
-const toneMap: Record<StatusTone, { label: string; hex: string }> = {
-  online: { label: "Online", hex: "#74f7b0" },
-  warning: { label: "Warning", hex: "#fbbf24" },
-  offline: { label: "Offline", hex: "#fb7185" },
-  starting: { label: "Starting", hex: "#22d3ee" },
+// Default pill labels resolve through the active locale; callers can still
+// override the label with concrete text (e.g. a process status value).
+// 默认药丸标签跟随当前语言解析；调用方仍可用具体文本覆盖（例如进程状态值）。
+const toneLabelKeys: Record<StatusTone, TranslationKey> = {
+  online: "status.online",
+  warning: "status.warning",
+  offline: "status.offline",
+  starting: "status.starting",
+};
+
+const toneHexMap: Record<StatusTone, string> = {
+  online: "#74f7b0",
+  warning: "#fbbf24",
+  offline: "#fb7185",
+  starting: "#22d3ee",
 };
 
 export function StatusPill({
@@ -20,28 +31,29 @@ export function StatusPill({
   tone: StatusTone;
   label?: string;
 }) {
-  const palette = toneMap[tone];
+  const { t } = useI18n();
+  const hex = toneHexMap[tone];
 
   return (
     <span
       className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#090c10]/88 px-3 py-1 text-[0.72rem] font-semibold uppercase tracking-[0.22em] text-white/72"
       style={
         {
-          boxShadow: `inset 0 0 0 1px ${palette.hex}20`,
+          boxShadow: `inset 0 0 0 1px ${hex}20`,
         } satisfies CSSProperties
       }
     >
       <span className="relative flex size-2.5">
         <span
           className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-80"
-          style={{ backgroundColor: `${palette.hex}88` }}
+          style={{ backgroundColor: `${hex}88` }}
         />
         <span
           className="relative inline-flex h-2.5 w-2.5 rounded-full"
-          style={{ backgroundColor: palette.hex }}
+          style={{ backgroundColor: hex }}
         />
       </span>
-      {label ?? palette.label}
+      {label ?? t(toneLabelKeys[tone])}
     </span>
   );
 }
