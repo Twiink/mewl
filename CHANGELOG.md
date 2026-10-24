@@ -1,417 +1,417 @@
-# Changelog
+# 更新日志
 
-All notable changes to this project will be documented in this file.
+本项目的所有显著变更都将记录在此文件中。
 
 [Unreleased]
 
 ## 2026-04-01 16:59 EDT
 
-- tightened `.gitignore` so generated Astro cache files, docs build output, Wrangler local state, and local docs env files are not accidentally committed
-- refreshed the README, overview, roadmap, and release notes so the repo hygiene pass is documented consistently
+- 收紧 `.gitignore`，让生成的 Astro 缓存文件、文档构建输出、Wrangler 本地状态和本地文档 env 文件不会被意外提交
+- 刷新 README、概览、路线图和发行说明，一致地记录这次仓库卫生整理
 
 ## 2026-04-01 16:57 EDT
 
-- removed the `Reference` section from the Starlight sidebar so the user-facing docs navigation stays focused on onboarding and guides
-- refreshed the README, overview, roadmap, and release notes so the slimmer docs navigation is documented consistently
+- 从 Starlight 侧边栏移除 `Reference` 部分，让面向用户的文档导航聚焦于入门和指南
+- 刷新 README、概览、路线图和发行说明，一致地记录精简后的文档导航
 
 ## 2026-04-01 16:45 EDT
 
-- added `docs/wrangler.toml` and Wrangler-based preview/deploy scripts so the Starlight docs site is configured for Cloudflare Pages deployment
-- added a Cloudflare deployment reference page inside the docs app and refreshed the root project docs to mention the new docs publishing workflow
+- 添加 `docs/wrangler.toml` 和基于 Wrangler 的预览/部署脚本，让 Starlight 文档站点配置好 Cloudflare Pages 部署
+- 在文档应用内添加 Cloudflare 部署参考页，并刷新根项目文档以提及新的文档发布工作流
 
 ## 2026-04-01 16:46 EDT
 
-- rewrote the docs installation page around packaged Linux downloads and GitHub release links instead of source-build instructions
-- expanded the Starlight docs coverage with a product explainer and a full workspace tour so the docs explain what Mewl does and how to use each major surface more clearly
-- refreshed the README, overview, roadmap, and release notes so the stronger end-user docs coverage is documented consistently
+- 围绕打包的 Linux 下载和 GitHub 发布链接重写文档安装页，取代源码构建说明
+- 用产品说明和完整的工作区导览扩展 Starlight 文档覆盖，让文档更清楚地解释 Mewl 做什么以及如何使用每个主要界面
+- 刷新 README、概览、路线图和发行说明，一致地记录更强的终端用户文档覆盖
 
 ## 2026-04-01 16:22 EDT
 
-- built a standalone Astro + Starlight documentation site in `docs/` with Pink Pixel branding, a Mewl-aligned dark glass visual system, starter guides, and config reference pages
-- added root helper scripts for running and building the docs site, copied the app screenshot set into the docs app, and wired those captures into the new Starlight content
-- refreshed the README, overview, roadmap, and release notes so the new docs surface is documented consistently across the project
+- 在 `docs/` 中构建独立的 Astro + Starlight 文档站点，带 Pink Pixel 品牌、与 Mewl 一致的深色玻璃视觉系统、入门指南和配置参考页
+- 添加运行和构建文档站点的根辅助脚本，把应用截图集复制进文档应用，并将这些截图接入新的 Starlight 内容
+- 刷新 README、概览、路线图和发行说明，让新的文档面在整个项目中得到一致的记录
 
 ## 2026-04-01 16:02 EDT
 
-- fixed the Overview `Running Now` preview cards so very long process names and command strings wrap inside the card instead of bleeding past the panel edge
-- refreshed the README, overview, roadmap, release notes, and blueprint notes so the overview-card text containment fix is documented consistently
+- 修复概览的 `Running Now` 预览卡片，超长进程名和命令字符串现在在卡片内换行，而不是溢出面板边缘
+- 刷新 README、概览、路线图、发行说明和蓝图笔记，一致地记录概览卡片文本收容修复
 
 ## 2026-04-01 15:34 EDT
 
-- fixed an intermittent Monitor page render glitch where a stale card subtree could appear inside the Trend Canvas after workspace/view transitions or live tile reshuffles
-- stabilized the monitor tile identities and forced the active workspace surface to remount on view/runtime changes so stale port-oriented content no longer bleeds into the monitor grid
-- refreshed the README, overview, roadmap, release notes, and blueprint notes so the monitor-card reconciliation fix is documented consistently
+- 修复监控页面偶发的渲染故障：工作区/视图切换或实时磁贴重排后，趋势画布内可能出现过期的卡片子树
+- 稳定监控磁贴标识，并强制当前工作区表面在视图/运行时变化时重新挂载，让面向端口的过期内容不再渗入监控网格
+- 刷新 README、概览、路线图、发行说明和蓝图笔记，一致地记录监控卡片协调修复
 
 ## 2026-04-01 13:45 EDT
 
-- added three new README screenshots covering a detailed Ports view plus two additional Monitor captures
-- refreshed the overview notes so the expanded screenshot gallery is documented consistently
+- 添加三张新的 README 截图，覆盖详细的端口视图和两张额外的监控截图
+- 刷新概览笔记，一致地记录扩展的截图画廊
 
 ## 2026-04-01 13:37 EDT
 
-- changed the Logs workspace auto-follow behavior so scrolling away from the newest entries stops live pinning instead of snapping the view back during active log flow
-- refreshed the README, overview, and roadmap so the smarter live-edge browsing behavior is documented consistently
+- 更改日志工作区的自动跟随行为，滚离最新条目时停止实时置顶固定，而不是在活动日志流期间把视图拉回
+- 刷新 README、概览和路线图，一致地记录更聪明的实时边缘浏览行为
 
 ## 2026-04-01 13:31 EDT
 
-- flipped the Logs workspace ordering so the newest matching entries now render at the top of the page instead of the bottom
-- refreshed the README, overview, and roadmap so the newest-first diagnostics behavior is documented consistently
+- 翻转日志工作区排序，最新匹配条目现在渲染在页面顶部而不是底部
+- 刷新 README、概览和路线图，一致地记录最新优先的诊断行为
 
 ## 2026-04-01 13:21 EDT
 
-- refactored the Electron logging runtime around a clearer broker pattern so unified event retention, batching, and adapter startup live in one place
-- added a Linux journald adapter that streams host system logs into the unified feed and surfaced a dedicated `System` tab on the Logs page
-- extended the Logs workspace with `All`, `Mewl`, `Processes`, and `Containers` views so internal diagnostics and runtime output can be separated quickly
-- added managed Docker log capture when a saved Docker service command can be translated into a safe `docker logs` or `docker compose logs` query, keeping the feature scoped to derivable managed services
-- refreshed the README, overview, roadmap, architecture notes, and release notes so the broker-plus-adapter direction, system-log source, and expanded logs-tab coverage are documented consistently
+- 围绕更清晰的代理模式重构 Electron 日志运行时，让统一事件保留、分批和适配器启动集中在一处
+- 添加 Linux journald 适配器，把主机系统日志流入统一信息流，并在日志页面提供专属的 `System` 标签页
+- 用 `All`、`Mewl`、`Processes` 和 `Containers` 视图扩展日志工作区，让内部诊断和运行时输出可以快速分离
+- 当保存的 Docker 服务命令能转换为安全的 `docker logs` 或 `docker compose logs` 查询时，添加托管 Docker 日志采集，把该功能限定在可推导的托管服务
+- 刷新 README、概览、路线图、架构笔记和发行说明，一致地记录代理加适配器方向、系统日志源和扩展的日志标签页覆盖
 
 ## 2026-04-01 12:19 EDT
 
-- shipped the new `Logs` workspace with persisted navigation, a dense terminal-style feed, search, level and source filters, follow-tail, UI-local pause and resume, clear, and export controls
-- added a normalized unified log contract plus Electron batched log subscriptions so managed stdout/stderr, automation history, alert snapshots, and Mewl-owned internal diagnostics can stream into one renderer feed
-- integrated `consola` in the Electron runtime with tagged internal sources such as `runtime`, `process-manager`, `automation`, and `ports`, using a custom reporter bridge instead of replacing direct child-process capture
-- refreshed the README, overview, roadmap, architecture notes, and release notes so the shipped `1.0.0` diagnostics slice is documented consistently
+- 发布新的 `Logs` 工作区，带持久化导航、密集的终端风格信息流、搜索、级别和来源筛选、跟随尾部、UI 本地暂停和恢复、清空以及导出控件
+- 添加归一化的统一日志契约加 Electron 分批日志订阅，让托管 stdout/stderr、自动化历史、告警快照和 Mewl 自有内部诊断可以流入同一条渲染层信息流
+- 在 Electron 运行时集成 `consola`，使用 `runtime`、`process-manager`、`automation` 和 `ports` 等带标签的内部源，通过自定义 reporter 桥接而不是替换直接的子进程采集
+- 刷新 README、概览、路线图、架构笔记和发行说明，一致地记录已发布的 `1.0.0` 诊断切片
 
 ## 2026-04-01 11:57 EDT
 
-- added a dedicated roadmap and implementation-doc plan for a future `Logs` workspace built around Electron-side aggregation and a `consola` reporter bridge
-- refreshed the README, overview, architecture notes, and logs plan so the next-step diagnostics direction is documented consistently across the project
+- 为未来围绕 Electron 侧聚合和 `consola` reporter 桥接构建的 `Logs` 工作区，添加专属的路线图和实施文档计划
+- 刷新 README、概览、架构笔记和日志计划，让下一步诊断方向在整个项目中一致记录
 
 ## 2026-03-31 23:54 EDT
 
-- added a release screenshot gallery to the README for the overview, processes, managed, ports, and monitor workspaces
-- refreshed the overview, roadmap, and release notes so the published docs now mention the README screenshot gallery
+- 在 README 中为概览、进程、托管、端口和监控工作区添加发行截图画廊
+- 刷新概览、路线图和发行说明，让已发布文档提及 README 截图画廊
 
 ## 2026-03-31 23:34 EDT
 
-- added the published `1.0.0` Linux package download links to the README and release notes
-- refreshed the overview to note that the shipped Linux artifacts now have public download URLs
+- 在 README 和发行说明中添加已发布的 `1.0.0` Linux 包下载链接
+- 刷新概览，注明已发布的 Linux 产物现在有公开下载 URL
 
 ## 1.0.0 - 2026-03-31
 
-- first Linux-ready public release of Mewl
-- ships the Electron desktop shell, live runtime bridge, managed-service workflows, monitoring surfaces, and Linux package outputs
-- release artifacts now target AppImage, `.deb`, and `.rpm`
+- Mewl 首个 Linux 就绪的公开发布
+- 交付 Electron 桌面外壳、实时运行时桥接、托管服务工作流、监控界面和 Linux 包输出
+- 发行产物现在面向 AppImage、`.deb` 和 `.rpm`
 
-### Release Prep
+### 发行准备
 
 #### 2026-03-31 23:06 EDT
 
-- disabled `electron-builder` publishing for Linux package commands and CI runs so GitHub Actions artifact builds no longer require `GH_TOKEN`
-- refreshed the README and overview to document the local-only Linux packaging behavior
+- 为 Linux 包命令和 CI 运行禁用 `electron-builder` 发布，GitHub Actions 产物构建不再需要 `GH_TOKEN`
+- 刷新 README 和概览，记录仅本地的 Linux 打包行为
 
 #### 2026-03-31 23:00 EDT
 
-- fixed the packaged shell branding icon path by switching the sidebar app icon and favicon to base-aware `icon.png` URLs instead of root-absolute `/icon.png`
-- refreshed the README and overview to document the packaged UI icon fix for `file://` Linux builds
+- 通过把侧边栏应用图标和 favicon 切换到基于 base 的 `icon.png` URL（而不是根绝对路径 `/icon.png`），修复打包外壳的品牌图标路径
+- 刷新 README 和概览，记录 `file://` Linux 构建的打包 UI 图标修复
 
 #### 2026-03-31 22:53 EDT
 
-- added a Linux packaging pipeline with `electron-builder`, including `npm run package:linux` plus Linux targets for AppImage, `.deb`, and `.rpm`
-- generated packaging icons from `public/icon.png` through a reusable `scripts/generate-icons.mjs` flow, producing Linux icon sizes and future-facing `.ico` groundwork
-- added a manual GitHub Actions workflow for Linux package builds and artifact upload
-- verified Linux packaging locally by producing `release/Mewl-1.0.0-x86_64.AppImage`, `release/mewl_1.0.0_amd64.deb`, and `release/mewl-1.0.0.x86_64.rpm`
-- refreshed the README, overview, and roadmap to document the Linux-first packaging flow and marked desktop delivery complete for the current Linux target scope
+- 使用 `electron-builder` 添加 Linux 打包流水线，包括 `npm run package:linux` 以及 AppImage、`.deb`、`.rpm` 的 Linux 目标
+- 通过可复用的 `scripts/generate-icons.mjs` 流程从 `public/icon.png` 生成打包图标，产出 Linux 图标尺寸和面向未来的 `.ico` 基础
+- 添加用于 Linux 包构建和产物上传的手动 GitHub Actions 工作流
+- 本地验证 Linux 打包，产出 `release/Mewl-1.0.0-x86_64.AppImage`、`release/mewl_1.0.0_amd64.deb` 和 `release/mewl-1.0.0.x86_64.rpm`
+- 刷新 README、概览和路线图，记录 Linux 优先的打包流程，并为当前 Linux 目标范围标记桌面交付完成
 
 ## 2026-03-31 22:27 EDT
 
-- removed the redundant `managed` ownership pill from cards on the Managed page so saved service cards focus on status and service mode instead
-- refreshed the README and overview to document the tighter Managed card presentation
+- 从托管页面的卡片上移除冗余的 `managed` 归属徽标，让已保存服务卡片聚焦于状态和服务模式
+- 刷新 README 和概览，记录更紧凑的托管卡片呈现
 
 ## 2026-03-31 22:17 EDT
 
-- added explicit managed service modes for `command`, `script`, and `docker`, including mode-specific editor labels, guidance, and saved runtime metadata
-- restored working-directory and restart-policy controls inside the Managed modal so roadmap-promised service definitions are editable again from the UI
-- taught the Electron runtime to launch direct script paths through interpreter-aware resolution for common shell, Python, and Node script extensions
-- added Docker-aware fallback stop derivation for common `docker compose up ...` and named `docker run ...` managed services when no explicit stop command is saved
-- refreshed the README, overview, and roadmap to document the completed script-first and Docker-first managed-service slice
-- revalidated the app with a successful `npm run build`
+- 为 `command`、`script` 和 `docker` 添加明确的托管服务模式，包括模式专属的编辑器标签、指引和保存的运行时元数据
+- 在托管弹窗内恢复工作目录和重启策略控件，让路线图承诺的服务定义可以从 UI 再次编辑
+- 让 Electron 运行时通过解释器感知的解析启动直接脚本路径，覆盖常见 shell、Python 和 Node 脚本扩展名
+- 当没有保存明确的停止命令时，为常见 `docker compose up ...` 和命名 `docker run ...` 托管服务添加 Docker 感知的回退停止推导
+- 刷新 README、概览和路线图，记录已完成的脚本优先和 Docker 优先托管服务切片
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 20:45 EDT
 
-- removed the always-visible helper text under the managed-card `autostart` and `watch ports` toggles and moved that guidance into hover text instead
-- refreshed the README, overview, and roadmap to document the tighter managed-card toggle treatment
+- 移除托管卡片 `autostart` 和 `watch ports` 开关下常显的帮助文本，把该指引移入悬停文本
+- 刷新 README、概览和路线图，记录更紧凑的托管卡片开关处理
 
 ## 2026-03-31 20:26 EDT
 
-- removed the standalone Automation page and folded the service-level `autostart` and `watch ports` controls into each managed service card
-- kept the underlying automation history and runtime behavior intact while trimming the UI down to the controls that actually matter in the Managed workspace
-- refreshed the README, overview, and roadmap to document the five-view navigation and the new managed-card toggle flow
+- 移除独立自动化页面，把服务级 `autostart` 和 `watch ports` 控件折叠进每张托管服务卡片
+- 保持底层自动化历史和运行时行为不变，同时把 UI 精简到托管工作区中真正重要的控件
+- 刷新 README、概览和路线图，记录五视图导航和新的托管卡片开关流程
 
 ## 2026-03-31 20:10 EDT
 
-- moved the Runtime Pulse card out of the sidebar and into the open sixth Trend Canvas slot so the monitor grid fills the desktop space more cleanly
-- removed the monitor-only sidebar waveform so Host Health stays focused on machine state while Runtime Pulse remains part of the main monitoring canvas
-- refreshed the README, overview, and roadmap to document the in-grid Runtime Pulse placement
+- 把 Runtime Pulse 卡片从侧边栏移入趋势画布的开放第六槽位，让监控网格更干净地填满桌面空间
+- 移除仅监控的侧边栏波形，让主机健康专注机器状态，而 Runtime Pulse 保留在主监控画布中
+- 刷新 README、概览和路线图，记录网格内 Runtime Pulse 的位置
 
 ## 2026-03-31 20:07 EDT
 
-- rearranged the Monitor page into horizontal bands so the trend canvas spans the workspace, the snapshot lane reads across the page, and the noisy-service cards sit in a two-column grid instead of a tall first column
-- moved the Runtime Pulse waveform into the sidebar under Host Health while the Monitor view is active, giving the main monitoring surface more room for trend and service cards
-- refreshed the README, overview, and roadmap to document the new monitor layout pass
+- 把监控页面重排为横向带状：趋势画布铺满工作区、快照通道横向阅读、噪音服务卡片排在两列网格中而不是高耸的第一列
+- 在监控视图激活时把 Runtime Pulse 波形移入侧边栏主机健康下方，给主监控表面留出更多趋势和服务卡片空间
+- 刷新 README、概览和路线图，记录新的监控布局一轮
 
 ## 2026-03-31 14:58 EDT
 
-- added rolling monitor visuals for CPU, memory, disk, network, and GPU by introducing a live metric-history buffer in the Electron runtime and a new SVG trend-chart component in the shared UI layer
-- reshaped the Monitor page into a stronger composed surface with a trend canvas, snapshot lane, and the existing noisy-service context instead of relying on standalone progress bars alone
-- refreshed the README, overview, and roadmap to document the new monitoring visual system and marked the remaining Phase 4 chart item complete
-- revalidated the app with a successful `npm run build`
+- 通过在 Electron 运行时引入实时指标历史缓冲区和共享 UI 层的新 SVG 趋势图组件，为 CPU、内存、磁盘、网络和 GPU 添加滚动监控可视化
+- 把监控页面重塑为更强的组合表面：趋势画布、快照通道和现有噪音服务上下文，而不再只依赖独立进度条
+- 刷新 README、概览和路线图，记录新的监控视觉系统，并标记剩余的 Phase 4 图表项完成
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 14:54 EDT
 
-- added alert-center filtering in the tray for severity, service, and time window without pushing the workflow into a separate full-page view
-- expanded the Electron alert builder to flag crash loops, reserved-port drift, and unhealthy managed-service CPU or memory spikes alongside the existing host-level alerts
-- refreshed the README, overview, and roadmap to document the richer alerts model and marked the remaining Phase 4 alert items complete
-- revalidated the app with a successful `npm run build`
+- 在告警中心托盘中添加严重级别、服务和时间窗口筛选，而不把工作流推入单独的全页视图
+- 扩展 Electron 告警构建器，在现有主机级告警之外标记崩溃循环、预留端口漂移和不健康的托管服务 CPU 或内存飙升
+- 刷新 README、概览和路线图，记录更丰富的告警模型，并标记剩余的 Phase 4 告警项完成
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 14:37 EDT
 
-- added managed-service restart policies with bounded retry limits, including `manual`, `on-failure`, and `always` modes in the Managed editor
-- extended the Electron runtime to record persisted automation history for manual actions, runtime boot flows, profile runs, policy retries, and failure paths
-- refreshed the Automation page with policy counts, failure summaries, and a real history feed instead of only showing toggle rows
-- refreshed the README, overview, roadmap, and project instructions to document restart policies and automation history
-- revalidated the app with a successful `npm run build`
+- 添加带重试上限的托管服务重启策略，包括托管编辑器中的 `manual`、`on-failure` 和 `always` 模式
+- 扩展 Electron 运行时，为手动操作、运行时启动流程、配置档运行、策略重试和失败路径记录持久化自动化历史
+- 用策略计数、失败摘要和真实历史流刷新自动化页面，而不是只显示开关行
+- 刷新 README、概览、路线图和项目说明，记录重启策略和自动化历史
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 14:30 EDT
 
-- added a Managed cleanup flow for legacy `mewl.services.json` entries, including persisted review metadata from the Electron normalization layer and in-app confirmation actions
-- surfaced cleanup-only filtering, per-card review badges, and editor-side review notes so imported service definitions can be corrected intentionally instead of silently rewritten
-- refreshed the README, overview, roadmap, and project instructions to document the new legacy-config cleanup path
-- revalidated the app with a successful `npm run build`
+- 为旧 `mewl.services.json` 条目添加托管清理流程，包括来自 Electron 归一化层的持久化审核元数据和应用内确认操作
+- 呈现仅清理筛选、每卡片审核徽标和编辑器侧审核笔记，让导入的服务定义可以被有意图地纠正，而不是被静默重写
+- 刷新 README、概览、路线图和项目说明，记录新的旧配置清理路径
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 14:25 EDT
 
-- audited the shipped app against the roadmap and marked the already-landed Observed-versus-Managed milestones as complete, including runtime metadata hydration, observed/runtime separation, and legacy managed-config normalization
-- corrected the project docs and instruction files so they now reflect the six-view workspace model with the dedicated `Managed` page
-- revalidated the docs-only alignment pass against the current code structure before the next feature slice
+- 对照路线图审计已发布应用，把已落地的观测与托管里程碑标记为完成，包括运行时元数据加载、观测/运行时分离和旧托管配置归一化
+- 修正项目文档和说明文件，使其反映带专属 `Managed` 页面的六视图工作区模型
+- 在下一个功能切片之前，对照当前代码结构重新验证这次仅文档的对齐轮
 
 ## 2026-03-31 13:48 EDT
 
-- tightened the Processes page card layout so long process names, descriptions, commands, and working-directory paths now wrap inside expanded cards instead of spilling past the edge
-- refreshed the README, overview, and roadmap to document the Processes card readability pass
-- revalidated the app with a successful `npm run build`
+- 收紧进程页面卡片布局，长进程名、描述、命令和工作目录路径现在在展开卡片内换行，而不是溢出边缘
+- 刷新 README、概览和路线图，记录进程卡片可读性一轮
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 13:35 EDT
 
-- added a guided create-from-observed flow that opens the Managed editor with a prefilled draft banner, carrying over the observed command, working directory, and watch-port hint before anything is saved
-- added a dedicated observed-only kill action in the Processes page and inspector, with copy that makes it explicit that Mewl is terminating the live pid rather than editing the managed service catalog
-- extended the Electron runtime bridge with a real observed-process termination path that rejects managed-service pids and refreshes the live runtime snapshot afterward
-- refreshed the README, overview, and roadmap to document the new observed-to-managed review flow and clearer observed kill behavior
-- revalidated the app with a successful `npm run build`
+- 添加引导式从观测创建流程，打开带预填草稿横幅的托管编辑器，在保存任何内容之前带入观测命令、工作目录和端口监听提示
+- 在进程页面和检查器中添加专属的仅观测终止操作，文案明确说明 Mewl 结束的是实时 pid 而不是编辑托管服务目录
+- 用真实的观测进程终止路径扩展 Electron 运行时桥接，拒绝托管服务 pid 并在之后刷新实时运行时快照
+- 刷新 README、概览和路线图，记录新的观测到托管审核流程和更清晰的观测终止行为
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 11:47 EDT
 
-- added a dedicated `Managed` workspace for user-authored service definitions, including editable start, stop, and restart commands, working directory, notes, autostart and watch-port toggles, title colors, and icon choices
-- removed the old `Manage` / `Observe` and lifecycle controls from the live Processes cards so that page now stays focused on expandable runtime inspection instead of service authoring
-- updated the Electron bridge and config layer so managed services are explicit saved definitions with command-string parsing, optional stop and restart hooks, and in-app create, update, and remove actions
-- refreshed the README, overview, and roadmap to document the new Managed workspace and the lighter live-process model
-- revalidated the app with a successful `npm run build`
+- 为用户自定义服务定义添加专属的 `Managed` 工作区，包括可编辑的启动、停止和重启命令、工作目录、备注、autostart 和端口监听开关、标题颜色和图标选择
+- 从实时进程卡片移除旧的 `Manage` / `Observe` 和生命周期控件，让该页面聚焦于可展开的运行时检查而不是服务编写
+- 更新 Electron 桥接和配置层，让托管服务成为明确的已保存定义，带命令字符串解析、可选停止和重启钩子以及应用内创建、更新和移除操作
+- 刷新 README、概览和路线图，记录新的托管工作区和更轻的实时进程模型
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 11:05 EDT
 
-- expanded the roadmap into a detailed `Observed` versus `Managed` product slice so future work can be planned as a clean split between live inspection and explicit service definitions
-- documented the manual managed-service editor direction, including launch commands, renameable cards, metadata, and script/Docker-friendly start and stop flows
-- refreshed the README and overview to match the roadmap language so the product direction stays aligned across the docs
+- 把路线图扩展为详细的「观测 / 托管」产品切片，让未来工作可以规划为实时检查与明确服务定义之间的干净分离
+- 记录手动托管服务编辑器方向，包括启动命令、可重命名卡片、元数据以及脚本/Docker 友好的启动和停止流程
+- 刷新 README 和概览以匹配路线图措辞，让产品方向在文档间保持一致
 
 ## 2026-03-31 10:40 EDT
 
-- fixed the Processes view so helper subprocesses like Chromium and Electron `--type=...` workers no longer flood the grid as separate app cards
-- hardened `Manage` promotion by walking helper-child selections back to the launchable parent process before saving a managed service
-- normalized helper-derived managed-service entries on config load so repeated accidental `Manage` clicks collapse back into one saved service instead of multiple broken duplicates
-- refreshed the README, overview, and roadmap to document the cleaner observed-process model and the planned split between observed and manually managed workspaces
-- revalidated the app with a successful `npm run build` and a direct Electron runtime hydration check against the live host snapshot
+- 修复进程视图，Chromium 和 Electron `--type=...` worker 等辅助子进程不再作为独立应用卡片淹没网格
+- 通过把辅助子进程选择回溯到可启动的父进程，强化 `Manage` 提升操作
+- 在配置加载时归一化辅助进程派生的托管服务条目，让重复的误点 `Manage` 折叠回一个已保存服务，而不是多个损坏的重复项
+- 刷新 README、概览和路线图，记录更干净的观测进程模型以及观测与手动管理工作区之间计划的分离
+- 通过成功的 `npm run build` 和针对实时主机快照的直接 Electron 运行时加载检查重新验证应用
 
 ## 2026-03-31 09:31 EDT
 
-- added a UI-backed `Manage` / `Observe` flow so processes can be promoted into or removed from managed service control without hand-editing JSON
-- moved the live managed-service config to a per-user app-data location, using `~/.config/mewl/mewl.services.json` on Linux and platform-equivalent paths elsewhere
-- reset the repo copy of `mewl.services.json` to an empty baseline so new installs do not start with fake sample services
-- refreshed the README, overview, and roadmap to document the new config location and process-management flow
-- revalidated the app with a successful `npm run build` and a direct runtime script that promoted an observed process to managed and then demoted it back
+- 添加 UI 支持的 `Manage` / `Observe` 流程，让进程可以提升进或移出托管服务控制，而无需手工编辑 JSON
+- 把实时托管服务配置移到每用户应用数据位置，Linux 上用 `~/.config/mewl/mewl.services.json`，其他平台用等价路径
+- 把仓库副本 `mewl.services.json` 重置为空基线，新安装不再以假示例服务开始
+- 刷新 README、概览和路线图，记录新的配置位置和进程管理流程
+- 通过成功的 `npm run build` 和一个先把观测进程提升为托管再降级回去的直接运行时脚本重新验证应用
 
 ## 2026-03-31 09:21 EDT
 
-- removed the extra warning copy from observed process cards and inspector states so those surfaces stay visually clean
-- added simple `managed` and `observed` ownership tags anywhere process status is shown
-- refreshed the README, overview, and roadmap to document the cleaner process labeling
-- revalidated the app with a successful `npm run build`
+- 从观测进程卡片和检查器状态移除额外的警告文案，让这些表面保持视觉干净
+- 在任何显示进程状态的地方添加简单的 `managed` 和 `observed` 归属标签
+- 刷新 README、概览和路线图，记录更干净的进程标注
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 09:14 EDT
 
-- removed the confusing shared header start, stop, and restart buttons that could appear disabled when the current selection was not a managed service
-- moved lifecycle actions onto process surfaces so managed services can be controlled directly from their cards and inspector without scrolling back to the top bar
-- refreshed the README, overview, and roadmap to document the process-first interaction model
-- revalidated the app with a successful `npm run build`
+- 移除令人困惑的共享页头启动、停止和重启按钮，它们在当前所选不是托管服务时可能显示为禁用
+- 把生命周期操作移到进程表面上，让托管服务可以直接从卡片和检查器控制，而不用滚动回顶栏
+- 刷新 README、概览和路线图，记录进程优先的交互模型
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 09:04 EDT
 
-- fixed managed start, stop, and restart actions by teaching the Electron runtime to reattach matching services that were already running on the host before Mewl connected
-- added process-level lifecycle controls to expanded process cards and the full inspector so service actions no longer depend only on the global top command strip
-- kept observed host processes read-only in the UI, with clearer messaging when a process is not managed through `mewl.services.json`
-- refreshed the README, overview, and roadmap to document the lifecycle-control pass
-- revalidated the app with a successful `npm run build` and a direct Electron runtime action script covering stop, start, and restart
+- 通过让 Electron 运行时重新挂接 Mewl 连接前已在主机上运行的匹配服务，修复托管启动、停止和重启操作
+- 把进程级生命周期控件添加到展开进程卡片和完整检查器，服务操作不再只依赖全局顶部命令栏
+- 在 UI 中让观测的主机进程保持只读，当进程不通过 `mewl.services.json` 管理时给出更清晰的提示
+- 刷新 README、概览和路线图，记录生命周期控制一轮
+- 通过成功的 `npm run build` 和覆盖停止、启动、重启的直接 Electron 运行时操作脚本重新验证应用
 
 ## 2026-03-31 08:56 EDT
 
-- added GPU telemetry sampling to the Electron runtime, with `nvidia-smi` and DRM sysfs fallbacks plus a clean unavailable state when the host exposes no readable GPU counters
-- surfaced GPU pressure on the Monitor page and in the sidebar Host Health card without crowding the existing layout
-- removed the bulky Automation page state column and folded its useful status into compact inline panels above the rule list
-- rebuilt the Monitor page `Top Resource Draw` cards so long process command text stays collapsed until expanded, fixing the text overflow issue
-- refreshed the README, overview, and roadmap to document the monitoring and automation cleanup
-- revalidated the app with a successful `npm run build`
+- 为 Electron 运行时添加 GPU 遥测采样，带 `nvidia-smi` 和 DRM sysfs 回退，以及主机无可读 GPU 计数器时的干净不可用状态
+- 在监控页面和侧边栏主机健康卡片上呈现 GPU 压力，不挤占现有布局
+- 移除笨重的自动化页面状态列，把有用状态折叠进规则列表上方的紧凑内联面板
+- 重建监控页面的 `Top Resource Draw` 卡片，让长进程命令文本保持折叠直到展开，修复文本溢出问题
+- 刷新 README、概览和路线图，记录监控和自动化清理
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 08:43 EDT
 
-- tightened the Processes page cards by removing long command text from the collapsed state
-- moved the full command and working directory details into the expanded process panel so uneven cards no longer stretch the whole grid
-- refreshed the README, overview, and roadmap to document the cleaner process-card layout
+- 通过从折叠状态移除长命令文本收紧进程页面卡片
+- 把完整命令和工作目录详情移入展开的进程面板，不均匀的卡片不再拉伸整个网格
+- 刷新 README、概览和路线图，记录更干净的进程卡片布局
 
 ## 2026-03-31 08:40 EDT
 
-- changed the Electron main window shutdown flow so closing the app quits the process cleanly instead of leaving the desktop dev shell running in the background
-- removed the automatic detached DevTools launch in development, which was keeping the Electron session alive after the main window closed
-- refreshed the README, overview, and roadmap to document the desktop shutdown fix
+- 更改 Electron 主窗口关闭流程，关闭应用现在干净地退出进程，而不是让桌面开发外壳留在后台
+- 移除开发中的自动脱离 DevTools 启动，它曾让 Electron 会话在主窗口关闭后继续存活
+- 刷新 README、概览和路线图，记录桌面关闭修复
 
 ## 2026-03-31 08:38 EDT
 
-- changed the shared workspace search field to use the Pink Pixel rose accent instead of green for both the search icon and focus glow
-- refreshed the README, overview, and roadmap to keep the branded search treatment documented
+- 更改共享工作区搜索框，搜索图标和聚焦光晕都使用 Pink Pixel 玫瑰强调而不是绿色
+- 刷新 README、概览和路线图，保持品牌搜索处理有记录
 
 ## 2026-03-31 08:33 EDT
 
-- widened the Ports registry table layout so the `Target` column gets more room in the desktop shell
-- updated the service and target cells to wrap longer values instead of clipping bind targets at the card edge
-- refreshed the README, overview, and roadmap to note the port-table readability fix
+- 加宽端口注册表表格布局，让 `Target` 列在桌面外壳中获得更多空间
+- 更新服务和目标单元格，换行较长的值而不是在卡片边缘裁切绑定目标
+- 刷新 README、概览和路线图，注明端口表格可读性修复
 
 ## 2026-03-31 08:27 EDT
 
-- fixed the Electron development renderer path by binding Vite and preview explicitly to `127.0.0.1`, matching the `MEWL_RENDERER_URL` used by `npm run dev:desktop`
-- documented that Electron's insecure CSP warning is expected in Vite-powered development and was not the black-screen root cause
-- refreshed the README, overview, and roadmap with the loopback-host alignment change
+- 通过把 Vite 和 preview 显式绑定到 `127.0.0.1`，修复 Electron 开发渲染层路径，匹配 `npm run dev:desktop` 使用的 `MEWL_RENDERER_URL`
+- 记录 Electron 的不安全 CSP 警告在 Vite 驱动的开发中是预期的，并不是黑屏的根本原因
+- 刷新 README、概览和路线图，加入回环主机对齐变更
 
 ## 2026-03-31 08:25 EDT
 
-- fixed the Electron production renderer path by setting Vite `base` to `./`, so built assets resolve correctly when `dist/index.html` is loaded over `file://`
-- changed `npm run desktop` to rebuild the renderer before launching Electron, which avoids stale desktop bundles after UI changes
-- added `did-fail-load` and renderer-exit diagnostics in `electron/main.cjs` so future blank-window regressions surface useful console output
-- refreshed the project docs to describe the Electron asset-path fix and the updated desktop launch flow
+- 通过把 Vite `base` 设为 `./`，修复 Electron 生产渲染层路径，构建资源在通过 `file://` 加载 `dist/index.html` 时正确解析
+- 更改 `npm run desktop` 在启动 Electron 前重建渲染层，避免 UI 变更后的过期桌面包
+- 在 `electron/main.cjs` 中添加 `did-fail-load` 和渲染层退出诊断，让未来的白屏回归呈现有用的控制台输出
+- 刷新项目文档，描述 Electron 资源路径修复和更新的桌面启动流程
 
 ## 2026-03-31 08:20 EDT
 
-- removed the remaining browser-side mock runtime fallback so `src/runtime/provider.ts` now requires the live Electron bridge
-- updated the renderer reset and error flow to retry the Electron connection instead of rebuilding from a fake snapshot
-- deleted the unused mock dataset and boot helpers from `src/data/runtime.ts`, leaving only the shared runtime contract types
-- refreshed the docs and roadmap so Mewl is described as an Electron-first desktop dashboard with no runtime fallback path
-- revalidated the app with a successful `npm run build`
+- 移除剩余的浏览器侧 mock 运行时回退，`src/runtime/provider.ts` 现在要求实时 Electron 桥接
+- 更新渲染层重置和错误流程，改为重试 Electron 连接而不是从假快照重建
+- 从 `src/data/runtime.ts` 删除未使用的 mock 数据集和启动辅助函数，只留下共享运行时契约类型
+- 刷新文档和路线图，把 Mewl 描述为无运行时回退路径的 Electron 优先桌面仪表盘
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 08:14 EDT
 
-- hardened managed service launches in `electron/runtime.cjs` by validating executable tokens, constraining service working directories to the workspace, and resolving commands against the configured PATH
-- changed managed environment handling so services only inherit explicitly listed variables from `inheritEnv` plus their declared `env` overrides
-- added reserved-port checks before managed starts so Mewl refuses to boot a service when one of its watched ports is already occupied
-- surfaced child-process startup errors into managed logs instead of letting one bad service crash the wider Electron hydration flow
-- marked the roadmap's permission-safe command execution and environment-handling item complete and documented the new launch policy
-- revalidated the web build with a successful `npm run build` and confirmed the hardened runtime still booted the managed services
+- 在 `electron/runtime.cjs` 中强化托管服务启动：验证可执行 token、把服务工作目录约束在工作区内、并针对配置的 PATH 解析命令
+- 更改托管环境处理，服务只从 `inheritEnv` 加声明的 `env` 覆盖继承明确列出的变量
+- 在托管启动前添加预留端口检查，当受监端口已被占用时 Mewl 拒绝启动服务
+- 把子进程启动错误呈现在托管日志中，而不是让一个坏服务崩溃更大的 Electron 加载流程
+- 标记路线图的权限安全命令执行和环境处理项完成，并记录新的启动策略
+- 通过成功的 `npm run build` 重新验证 Web 构建，并确认强化后的运行时仍能启动托管服务
 
 ## 2026-03-31 08:06 EDT
 
-- extended `mewl.services.json` with startup profiles so grouped managed services can be booted or quieted through the Electron bridge
-- taught the Electron runtime to apply enabled autostart services and boot profiles during hydration
-- wired the Automation page to real profile actions so toggling quiet mode now parks the managed preview service instead of only changing UI state
-- verified the grouped startup flow by hydrating the runtime, confirming both managed services booted, enabling quiet mode, and then restoring the config
-- revalidated the web build with a successful `npm run build`
+- 用启动配置扩展 `mewl.services.json`，让成组的托管服务可以通过 Electron 桥接启动或静默
+- 让 Electron 运行时在加载期间应用已启用的自启动服务和启动配置
+- 把自动化页面接到真实的配置档操作，切换静默模式现在真的停放托管预览服务，而不只是改变 UI 状态
+- 通过加载运行时、确认两个托管服务都已启动、启用静默模式然后恢复配置，验证成组启动流程
+- 通过成功的 `npm run build` 重新验证 Web 构建
 
 ## 2026-03-31 07:39 EDT
 
-- extended the Electron bridge so managed service settings can be updated from the renderer and persisted back to `mewl.services.json`
-- wired the inspector `Autostart` and `Watch ports` toggles to the real desktop config for managed services instead of leaving them read-only in Electron mode
-- generated live Electron automation rules from managed service settings so the Automation page now reflects and edits real config
-- verified the managed-setting round trip by updating `workspace-sandbox`, confirming the snapshot changed, and restoring the config afterward
-- revalidated the web build with a successful `npm run build`
+- 扩展 Electron 桥接，让托管服务设置可以从渲染层更新并持久化回 `mewl.services.json`
+- 把检查器的 `Autostart` 和 `Watch ports` 开关接到托管服务的真实桌面配置，而不是在 Electron 模式下保持只读
+- 从托管服务设置生成实时 Electron 自动化规则，让自动化页面现在反映并编辑真实配置
+- 通过更新 `workspace-sandbox`、确认快照变化、之后恢复配置，验证托管设置往返
+- 通过成功的 `npm run build` 重新验证 Web 构建
 
 ## 2026-03-31 07:32 EDT
 
-- added config-driven managed services in `mewl.services.json` so Electron lifecycle actions only target processes Mewl explicitly owns
-- extended `electron/runtime.cjs` to start, stop, and restart managed services while continuing to scan the live host for discovered processes, ports, and metrics
-- wired the preload and renderer bridge so desktop lifecycle buttons now execute real managed actions instead of staying disabled
-- stopped restoring persisted runtime process data over the live Electron snapshot so the desktop shell shows current host state first
-- marked discovered host processes as observed and left them read-only, including disabling unwired inspector toggles in Electron mode
-- verified the managed-service loop by starting, scanning, and stopping `workspace-sandbox`, and revalidated the web build with `npm run build`
+- 在 `mewl.services.json` 中添加配置驱动的托管服务，Electron 生命周期操作只针对 Mewl 明确拥有的进程
+- 扩展 `electron/runtime.cjs` 以启动、停止和重启托管服务，同时继续扫描实时主机以发现进程、端口和指标
+- 接通 preload 和渲染层桥接，桌面生命周期按钮现在执行真实的托管操作而不再保持禁用
+- 停止用持久化的运行时进程数据覆盖实时 Electron 快照，桌面外壳优先显示当前主机状态
+- 把发现的主机进程标记为观测并保持只读，包括在 Electron 模式下禁用未接线的检查器开关
+- 通过启动、扫描和停止 `workspace-sandbox` 验证托管服务循环，并用 `npm run build` 重新验证 Web 构建
 
 ## 2026-03-31 07:21 EDT
 
-- added an Electron desktop shell with `electron/main.cjs` and `electron/preload.cjs`
-- implemented a first live host runtime collector in `electron/runtime.cjs` that scans real user processes, listening ports, and host metrics
-- updated the React shell so Electron mode uses the live bridge for runtime hydration and refresh scans instead of the mock boot helpers
-- disabled unfinished lifecycle buttons in live Electron mode so the app no longer pretends start, stop, and restart are wired when they are not
-- added `dev:desktop` and related package scripts for running the Vite renderer and Electron shell together during development
-- refreshed the docs to mark the remaining browser mock path as temporary and the long-term goal as a no-fallback live desktop runtime
-- revalidated the web build with a successful `npm run build`
+- 用 `electron/main.cjs` 和 `electron/preload.cjs` 添加 Electron 桌面外壳
+- 在 `electron/runtime.cjs` 中实现首个实时主机运行时采集器，扫描真实用户进程、监听端口和主机指标
+- 更新 React 外壳，Electron 模式使用实时桥接进行运行时加载和刷新扫描，而不是 mock 启动辅助函数
+- 在实时 Electron 模式下禁用未完成的生命周期按钮，应用不再假装启动、停止、重启已接线
+- 添加 `dev:desktop` 和相关包脚本，用于开发期间一起运行 Vite 渲染层和 Electron 外壳
+- 刷新文档，标记剩余的浏览器 mock 路径为临时，长期目标为无回退的实时桌面运行时
+- 通过成功的 `npm run build` 重新验证 Web 构建
 
 ## 2026-03-31 06:54 EDT
 
-- chose Electron as Mewl's native host integration layer and documented the decision across the roadmap and technical docs
-- added `src/runtime/provider.ts` so the renderer now hydrates through a runtime-source boundary instead of calling the mock boot helpers directly
-- typed a future `window.mewlHost` preload bridge in `src/vite-env.d.ts` so the app can adopt an Electron preload API without reshaping the UI contract
-- updated `index.html` metadata to describe Mewl as a local ops dashboard instead of the older server-manager scaffold wording
-- revalidated the application with a successful `npm run build`
+- 选择 Electron 作为 Mewl 的原生主机集成层，并在路线图和技术文档中记录该决定
+- 添加 `src/runtime/provider.ts`，渲染层现在通过运行时源边界加载，而不是直接调用 mock 启动辅助函数
+- 在 `src/vite-env.d.ts` 中为未来的 `window.mewlHost` preload 桥接定义类型，让应用可以采用 Electron preload API 而不重塑 UI 契约
+- 更新 `index.html` 元数据，把 Mewl 描述为本地运维仪表盘，取代旧的服务器管理脚手架措辞
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 06:33 EDT
 
-- hydrated the workspace from the runtime contract on boot and persisted local session state for views, filters, selected process, expanded cards, alerts, and automation changes
-- added structured per-process stdout and stderr panes in the inspector and appended lifecycle and settings changes into the mock log history
-- introduced runtime loading, empty, and error states plus a local session reset path so the shell behaves cleanly when no filtered data matches or saved state fails to load
-- revalidated the application with a successful `npm run build`
+- 启动时从运行时契约加载工作区，并为视图、筛选条件、选中进程、展开卡片、告警和自动化变更持久化本地会话状态
+- 在检查器中添加结构化的每进程 stdout 和 stderr 面板，并把生命周期和设置变更追加进 mock 日志历史
+- 引入运行时加载中、空态和错误状态加本地会话重置路径，让外壳在没有数据匹配筛选或已保存状态加载失败时表现干净
+- 通过成功的 `npm run build` 重新验证应用
 
 ## 2026-03-31 06:05 EDT
 
-- raised the top command bar and alerts tray stacking order so the notifications popover stays readable above the dashboard cards
+- 提高顶部命令栏和告警托盘的堆叠顺序，让通知弹层在仪表盘卡片之上保持可读
 
 ## 2026-03-31 05:58 EDT
 
-- removed the large dashboard banner copy and extra sidebar subtitle to keep the shell cleaner and more utility-focused
-- replaced the overview workspace cards with a tighter three-card summary row plus matching side-by-side process and port preview panels
-- moved the full inspector off the dashboard and onto the Processes page
-- rebuilt the Processes page around expandable three-column service cards with the inspector shown below the grid
-- added a collapsible sidebar and moved the host snapshot into the rail below host health
-- kept the Ports and Monitor views as dedicated pages while leaving only the basics on the overview dashboard
+- 移除大的仪表盘横幅文案和多余的侧边栏副标题，让外壳更干净、更实用导向
+- 用更紧凑的三卡片摘要行加匹配的并排进程和端口预览面板，替换概览工作区卡片
+- 把完整检查器从仪表盘移到进程页面
+- 围绕可展开的三列服务卡片重建进程页面，检查器显示在网格下方
+- 添加可折叠侧边栏，把主机快照移到主机健康下方的导航栏内
+- 保持端口和监控视图为专属页面，概览仪表盘只保留基础内容
 
 ## 2026-03-31 05:31 EDT
 
-- turned the original server-themed scaffold into a local process-management workspace for services, ports, automation, and host monitoring
-- added a real front-end runtime model in `src/data/runtime.ts` to drive processes, port bindings, alerts, monitor metrics, and automation rules
-- replaced the placeholder fleet table and cards with a searchable managed-runtime table, selected-service inspector, port registry, and monitor-focused secondary views
-- wired interactive quick actions for start, stop, restart, and port scanning using React deferred and transition-friendly state patterns
-- extended the shared UI primitives to support button click handlers, disabled states, and a dedicated `starting` status tone
-- moved the Vite dev and preview server to a fixed dedicated port at `29463`
-- refreshed the project documentation and roadmap around the real app goal: local process orchestration with a future native runtime bridge
+- 把原始服务器主题脚手架转变为本地进程管理工作区，覆盖服务、端口、自动化和主机监控
+- 在 `src/data/runtime.ts` 添加真实的前端运行时模型，驱动进程、端口绑定、告警、监控指标和自动化规则
+- 用可搜索的托管运行时表格、选中服务检查器、端口注册表和监控导向的次级视图替换占位机群表格和卡片
+- 用 React deferred 和 transition 友好的状态模式接线启动、停止、重启和端口扫描的交互快捷操作
+- 扩展共享 UI 原语，支持按钮点击处理器、禁用状态和专属的 `starting` 状态色调
+- 把 Vite 开发和预览服务器移到固定的专属端口 `29463`
+- 围绕真实应用目标刷新项目文档和路线图：带未来原生运行时桥接的本地进程编排
 
 ## 2026-03-31 05:02 EDT
 
-- replaced the pink-purple page backdrop with a dark slate background, dotted texture, and neutral glass surfaces
-- converted colored cards to gray cards with accent glows so color now lives in controls, icons, charts, and progress
-- redistributed accent usage across rose, purple, cyan, green, and amber Sparklebots components
-- removed scaffold-style explanatory copy from the main dashboard cards, metrics, and activity surfaces
-- replaced the old bottom activity thread card with a top-right bell button that opens a compact notifications tray
-- removed leftover footer scaffolding and simplified the fleet table and guardrails panel for a cleaner production-style UI
-- revalidated the refresh with a successful production build and headless browser screenshots of the closed and open alerts states
+- 用深石板背景、点状纹理和中性玻璃表面替换粉紫页面背景
+- 把彩色卡片转为带强调光晕的灰色卡片，让颜色存在于控件、图标、图表和进度中
+- 在玫瑰、紫、青、绿和琥珀色的 Sparklebots 组件间重新分配强调色用法
+- 从主仪表盘卡片、指标和活动表面移除脚手架风格的说明文案
+- 用打开紧凑通知托盘的右上铃铛按钮替换旧的底部活动流卡片
+- 移除遗留的页脚脚手架，简化机群表格和防护栏面板，获得更干净的生产风格 UI
+- 通过成功的生产构建和关闭/打开告警状态的无头浏览器截图重新验证这轮刷新
 
 ## 2026-03-31 04:50 EDT
 
-- tightened the main dashboard spacing so the workspace controls sit directly under `Active Workspace`
-- moved the action buttons to the left of the search field for a cleaner desktop command strip
-- rebalanced the top summary grid and lower workspace columns to keep cards aligned with less dead space
-- fixed the sidebar Flow Health card by making its signal bars scale to the available rail width
-- extended the shared `ShinyButton` and `SignalBars` components to support more flexible layout composition
-- revalidated the UI with a successful production build and a headless browser screenshot pass
+- 收紧主仪表盘间距，让工作区控件直接位于 `Active Workspace` 下方
+- 把操作按钮移到搜索框左侧，获得更干净的桌面命令栏
+- 重新平衡顶部摘要网格和下方工作区列，让卡片对齐、死区更少
+- 通过让信号条缩放到可用导航栏宽度，修复侧边栏 Flow Health 卡片
+- 扩展共享的 `ShinyButton` 和 `SignalBars` 组件，支持更灵活的布局组合
+- 通过成功的生产构建和无头浏览器截图轮重新验证 UI
 
 ## 2026-03-31 04:20 EDT
 
-- scaffolded Mewl as a React + TypeScript + Vite application
-- added Tailwind CSS 4 through the official Vite plugin
-- created a server manager dashboard layout inspired by `mockup.png`
-- integrated the provided icon asset into the app shell and favicon
-- implemented frosted glass surfaces, dotted texture, ambient glows, and Pink Pixel color direction
-- added Sparklebots-inspired reusable UI components for buttons, cards, toggles, progress bars, status pills, and signal bars
-- verified the UI with a successful production build and desktop/mobile browser smoke checks
-- created baseline project documentation and an Apache 2.0 license
+- 把 Mewl 脚手架为 React + TypeScript + Vite 应用
+- 通过官方 Vite 插件添加 Tailwind CSS 4
+- 以 `mockup.png` 为灵感创建服务器管理仪表盘布局
+- 把提供的图标资源集成进应用外壳和 favicon
+- 实现磨砂玻璃表面、点状纹理、环境光晕和 Pink Pixel 颜色方向
+- 添加 Sparklebots 风格的可复用 UI 组件：按钮、卡片、开关、进度条、状态胶囊和信号条
+- 通过成功的生产构建和桌面/移动浏览器冒烟检查验证 UI
+- 创建基线项目文档和 Apache 2.0 许可证

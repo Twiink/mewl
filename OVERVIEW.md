@@ -1,76 +1,76 @@
-# Overview
+# 概览
 
-## Purpose
+## 目的
 
-Mewl is a local process and port management app for Pink Pixel. This pass pushes the project from a visual scaffold into a more functional product shell by restoring workspace state, surfacing structured process logs, adding a dedicated unified diagnostics workspace, and handling runtime loading and failure states more deliberately.
+Mewl 是 Pink Pixel 的本地进程与端口管理应用。这一轮迭代把项目从视觉脚手架推进为更功能化的产品外壳：恢复了工作区状态、呈现了结构化的进程日志、新增了专属的统一诊断工作区，并更从容地处理运行时加载和失败状态。
 
-The latest iteration chooses Electron as the native host direction, introduces a runtime-provider seam, requires the live Electron bridge for boot, wires real lifecycle control for Mewl-owned services, and now adds restart policies, a persisted automation history feed, a filterable alerts tray, a dedicated `Logs` workspace with an Electron-main broker plus adapter-style sources for internal diagnostics, managed runtime output, Docker-derived container logs, and Linux journald system logs, richer rolling monitor visuals, card-level managed-service toggles, and first-class managed service modes for `command`, `script`, and `docker` flows on top of the Managed workspace cleanup flow, observed-to-managed review path, and observed-only kill action.
+最新的迭代选择 Electron 作为原生主机方向，引入了运行时 provider 接缝，启动时要求实时 Electron 桥接，为 Mewl 自有服务接通了真实的生命周期控制，现在又加入了重启策略、持久化的自动化历史流、可筛选的告警托盘、带 Electron 主进程代理的专属 `Logs` 工作区以及适配器式的内部诊断、托管运行时输出、Docker 派生容器日志和 Linux journald 系统日志源，更丰富的滚动监控可视化、卡片级托管服务开关，以及 `command`、`script` 和 `docker` 流程的一等托管服务模式——这些都叠加在托管工作区清理流程、观测到托管的审核路径和仅观测终止操作之上。
 
-The repository now also includes a standalone Astro + Starlight docs site in `docs/`, styled to feel like the shipped app and seeded with the same screenshot set used in the release materials.
+仓库现在还包含一个独立的 Astro + Starlight 文档站点，位于 `docs/`，风格贴近已发布的应用，并使用与发布材料相同的一套截图作为初始内容。
 
-Version `1.0.0` marks the first Linux-ready release point for that product slice.
+版本 `1.0.0` 标志着这一产品切片的首个 Linux 就绪发布点。
 
-## Technical Summary
+## 技术摘要
 
-- Framework: React 19
-- Language: TypeScript
-- Bundler: Vite 8
-- Styling: Tailwind CSS 4 plus custom CSS tokens and effects
-- Icons: lucide-react
-- Packaging: electron-builder
-- Documentation: Astro 6 + Starlight
-- Asset strategy: static assets served from `public/`
-- Production desktop renderer: built with relative asset paths so Electron can load the bundle from `dist/index.html`
-- Dev server address: `127.0.0.1:29463`
+- 框架：React 19
+- 语言：TypeScript
+- 打包器：Vite 8
+- 样式：Tailwind CSS 4 加自定义 CSS token 和特效
+- 图标：lucide-react
+- 打包：electron-builder
+- 文档：Astro 6 + Starlight
+- 资源策略：静态资源由 `public/` 提供
+- 生产桌面渲染层：使用相对资源路径构建，Electron 可以从 `dist/index.html` 加载产物
+- 开发服务器地址：`127.0.0.1:29463`
 
-## Application Structure
+## 应用结构
 
 ### `src/App.tsx`
 
-Defines the main product shell, workspace views, action handlers, search/filter state, alerts tray, process-selection workflow, runtime hydration flow, and local session persistence.
+定义主产品外壳、工作区视图、操作处理器、搜索/筛选状态、告警托盘、进程选择工作流、运行时加载流程和本地会话持久化。
 
-The current implementation includes:
+当前实现包括：
 
-- a collapsible left navigation rail for overview, processes, managed, logs, ports, and monitor
-- a compact action/search header with no large banner copy
-- a base-aware branded shell icon path so the sidebar app icon and favicon still render in packaged `file://` builds
-- a rose-accented shared search field that matches the Pink Pixel brand color
-- a clean dashboard made of summary cards plus short process and port preview lists
-- overview process preview cards that now keep long names and command text wrapped inside the card bounds instead of allowing flex-row overflow
-- a dedicated Processes page with expandable cards and a full inspector surface for live process inspection
-- improved wrapping rules on expanded process cards so long commands and filesystem paths stay contained within the card layout
-- explicit observed-runtime action panels that can prefill a managed draft or terminate only the current observed pid
-- a dedicated Managed page for explicit service definitions, lifecycle controls, and visual metadata, with editing now handled in a modal overlay instead of a permanent second column
-- a managed editor that now carries an explicit service mode so saved definitions can be authored as plain commands, direct scripts, or Docker flows
-- a managed cleanup banner, review badges, and modal editor actions for imported legacy service definitions that still need confirmation
-- restart-policy controls in the managed editor so services can stay manual, retry on failure, or always come back with bounded attempts
-- restored working-directory editing inside the managed modal so command, script, and Docker launches can be rooted intentionally
-- a prefilled managed-draft review state that carries observed command context into the editor before anything is saved
-- explicit `managed` and `observed` ownership tags on process surfaces without extra warning copy cluttering the cards
-- a collapsed process-card layout that keeps the grid tidy by moving long command text into the expanded panel
-- the first shipped split between lighter live-process inspection and a dedicated `Managed` service authoring flow for user-authored launch definitions
-- view-specific pages for port registry and monitoring workflows, with managed-service toggles handled directly on the Managed cards
-- managed-service cards that now carry their own `autostart` and `watch ports` toggles so service automation settings stay next to the lifecycle controls
-- managed-service toggle guidance that now lives in hover text so the card body stays compact
-- a ports registry table with a wider target column and wrapping behavior for longer bind addresses
-- a monitor view that now includes GPU telemetry when available and suppresses noisy process command text behind expandable detail panels
-- a monitor view that now pairs live pressure bars with rolling SVG trend charts fed by a session-local sample buffer
-- a monitor composition that now runs left-to-right, with a three-column trend grid, a wider snapshot band, a two-column noisy-service lane, and the runtime waveform occupying the sixth trend tile
-- a keyed workspace remount boundary plus stable monitor-tile identities so intermittent stale-card reuse no longer leaks old port content into the monitor trend grid
-- local state transitions that coordinate with the live Electron runtime bridge
-- a dedicated Logs workspace that hydrates a starting unified log snapshot, then appends live log batches without disturbing the narrow per-process inspector tails
-- an Electron-main log broker that now owns retention, batching, and adapter startup for the unified diagnostics feed
-- log-page tabs for `All`, `Mewl`, `Processes`, `Containers`, and `System`, so internal diagnostics, runtime output, and Linux host logs can be reviewed independently inside the same workspace
-- managed Docker services that can expose derivable `docker logs` or `docker compose logs` targets now contribute container log snapshots into the unified feed
-- a journald-backed system adapter that can stream Linux host logs into the same feed when `journalctl` is available
-- renderer-local log controls for search, severity/source filtering, pause/resume, newest-first log ordering, auto-follow that disengages when you scroll away from the live edge, clear, and export
-- workspace persistence for the active view, filters, expanded cards, selected process, alerts, and managed-service toggle state
-- an alerts tray that can now filter the current incident feed by severity, service, and time window
-- loading, empty, and error states for runtime hydration and filtered views
+- 可折叠的左侧导航栏，涵盖概览、进程、托管、日志、端口和监控
+- 紧凑的操作/搜索页头，没有大横幅文案
+- 基于 base 的品牌外壳图标路径，让侧边栏应用图标和 favicon 在打包的 `file://` 构建中仍然正常渲染
+- 玫瑰色强调的共享搜索框，匹配 Pink Pixel 品牌色
+- 由摘要卡片加简短进程和端口预览列表组成的简洁仪表盘
+- 概览进程预览卡片现在让长名称和命令文本在卡片边界内换行，而不是允许 flex 行溢出
+- 专属进程页面，带可展开卡片和完整检查器界面，用于实时进程检查
+- 展开进程卡片上改进的换行规则，让长命令和文件系统路径保持在卡片布局内
+- 明确的观测运行时操作面板，可以预填托管草稿或只终止当前观测 pid
+- 专属托管页面，用于明确的服务定义、生命周期控制和视觉元数据，编辑现在通过弹窗覆盖层处理，而不是永久的第二列
+- 带明确服务模式的托管编辑器，让已保存定义可以编写为普通命令、直接脚本或 Docker 流程
+- 托管清理横幅、审核徽标和弹窗编辑器操作，用于仍需确认的导入旧服务定义
+- 托管编辑器中的重启策略控件，让服务可以保持手动、失败时重试或总是自动恢复，并带有界的尝试次数
+- 在托管弹窗中恢复的工作目录编辑，让命令、脚本和 Docker 启动可以有意图地设定根目录
+- 预填托管草稿审核状态，在保存任何内容之前把观测命令上下文带入编辑器
+- 进程界面上的明确 `managed` 和 `observed` 归属标签，没有额外警告文案弄乱卡片
+- 折叠的进程卡片布局，把长命令文本移入展开面板，保持网格整洁
+- 首个已发布的「更轻的实时进程检查」与「专属 `Managed` 服务编写流程」的分离，用于用户自定义启动定义
+- 端口注册表和监控工作流的专属完整页面，托管服务开关直接在托管卡片上处理
+- 托管服务卡片现在自带 `autostart` 和 `watch ports` 开关，让服务自动化设置紧邻生命周期控件
+- 托管服务开关指引现在放在悬停文本中，让卡片主体保持紧凑
+- 端口注册表表格，带更宽的目标列和较长绑定地址的换行行为
+- 监控视图现在在可用时包含 GPU 遥测，并通过可展开详情面板收起噪音进程命令文本
+- 监控视图现在把实时压力条与会话本地采样缓冲区供数的滚动 SVG 趋势图配对
+- 监控布局现在从左到右运行：三列趋势网格、更宽的快照栏、两列噪音服务通道，运行时波形占据第六个趋势磁贴
+- 键控的工作区重挂载边界加稳定的监控磁贴标识，偶发的过期卡片复用不再把旧端口内容泄漏进监控趋势网格
+- 与实时 Electron 运行时桥接协调的本地状态转换
+- 专属日志工作区，先加载一份起始统一日志快照，然后追加实时日志批次，不打扰窄的每进程检查器尾部输出
+- Electron 主进程日志代理，现在负责统一诊断流的保留、分批和适配器启动
+- 日志页面的 `All`、`Mewl`、`Processes`、`Containers` 和 `System` 标签页，让内部诊断、运行时输出和 Linux 主机日志可以在同一工作区内独立查看
+- 能推导出 `docker logs` 或 `docker compose logs` 目标的托管 Docker 服务，现在可以把容器日志快照贡献进统一信息流
+- 基于 journald 的系统适配器，在 `journalctl` 可用时把 Linux 主机日志流入同一信息流
+- 渲染层本地日志控件：搜索、严重级别/来源筛选、暂停/恢复、最新优先的日志排序、滚离实时边缘时自动脱离的跟随、清空和导出
+- 工作区持久化：当前视图、筛选条件、展开卡片、选中进程、告警和托管服务开关状态
+- 告警托盘，现在可以按严重级别、服务和时间窗口筛选当前事件流
+- 运行时加载和筛选视图的加载中、空态和错误状态
 
 ### `src/components/ui.tsx`
 
-Contains reusable presentation components used throughout the app:
+包含整个应用使用的可复用展示组件：
 
 - `StatusPill`
 - `ShinyButton`
@@ -80,175 +80,175 @@ Contains reusable presentation components used throughout the app:
 - `HologramProgress`
 - `SignalBars`
 
-The shared UI layer also now supports:
+共享 UI 层现在还支持：
 
-- a `starting` status tone for booting services
-- interactive action buttons with `onClick` and disabled states
-- neutral glass surfaces, accent glows, and compact operational density
+- 用于启动中服务的 `starting` 状态色调
+- 带 `onClick` 和禁用状态的交互操作按钮
+- 中性玻璃表面、强调光晕和紧凑的操作密度
 
 ### `src/data/runtime.ts`
 
-Holds the shared TypeScript runtime contract used by both the renderer and the Electron bridge:
+保存渲染层和 Electron 桥接共同使用的共享 TypeScript 运行时契约：
 
-- managed processes with command, cwd, PID, ports, and resource usage
-- managed service mode metadata so the renderer can distinguish command, script, and Docker-backed definitions
-- structured stdout and stderr tails for each managed process
-- port registry bindings with exposure and conflict state
-- alerts and incident feed entries
-- alert metadata for per-service filtering, time-window filtering, and richer runtime categorization
-- monitor metrics
-- monitor history series for rolling CPU, memory, disk, network, and GPU trend visuals
-- optional GPU telemetry metadata, including availability and display labels for hosts without readable GPU counters
-- automation rules
-- automation history entries for manual actions, runtime boot flows, profiles, policy retries, and failures
-  This file is the current contract surface for the live Electron adapter.
+- 带命令、cwd、PID、端口和资源使用的托管进程
+- 托管服务模式元数据，让渲染层能区分 command、script 和 Docker 后端定义
+- 每个托管进程的结构化 stdout 和 stderr 尾部输出
+- 带暴露和冲突状态的端口注册表绑定
+- 告警和事件流条目
+- 用于按服务筛选、时间窗口筛选和更丰富运行时分类的告警元数据
+- 监控指标
+- 用于滚动 CPU、内存、磁盘、网络和 GPU 趋势可视化的监控历史序列
+- 可选的 GPU 遥测元数据，包括可用性状态和无可读 GPU 计数器主机的显示标签
+- 自动化规则
+- 涵盖手动操作、运行时启动流程、配置档、策略重试和失败的自动化历史条目
+  此文件是实时 Electron 适配器的当前契约表面。
 
 ### `src/runtime/provider.ts`
 
-Defines the runtime source boundary that the renderer now uses for hydration and reset flows.
+定义渲染层现在用于加载和重置流程的运行时源边界。
 
-The provider currently:
+provider 当前：
 
-- requires `window.mewlHost` when Mewl is hosted inside Electron
-- documents Electron as the chosen host layer for process control, port discovery, host metrics, and secure command execution
-- keeps the UI-facing `RuntimeSnapshot` contract stable while the Electron bridge evolves
+- 当 Mewl 托管在 Electron 内时要求 `window.mewlHost`
+- 记录 Electron 作为进程控制、端口发现、主机指标和安全命令执行的选定主机层
+- 在 Electron 桥接演化的同时保持面向 UI 的 `RuntimeSnapshot` 契约稳定
 
 ### `electron/runtime.cjs`
 
-Provides the first live native runtime collector for the Electron host shell.
+提供 Electron 主机外壳的首个实时原生运行时采集器。
 
-The current implementation:
+当前实现：
 
-- scans the current user's processes with `ps`
-- scans bound TCP and UDP ports with `lsof`, with `ss` as a host-command fallback
-- samples CPU, memory, disk, and network pressure from the local machine
-- samples GPU pressure when the host exposes it through `nvidia-smi` or DRM sysfs counters, and falls back to an unavailable state when it does not
-- maps the live host snapshot into the existing renderer-facing `RuntimeSnapshot` shape
-- loads `mewl.services.json` and manages only the services explicitly registered there
-- stores the managed-service config in a per-user app-data location (`~/.config/mewl/mewl.services.json` on Linux) so packaged builds do not depend on the repo checkout
-- starts, stops, and restarts managed services through child-process ownership in the Electron main process
-- reattaches matching managed services that are already running on the host so stop and restart still work after Mewl reconnects
-- now treats managed services as explicit saved definitions with a start command plus optional stop and restart commands
-- now stores an explicit managed-service mode (`command`, `script`, or `docker`) so the saved config, editor copy, and runtime behavior stay aligned
-- now filters helper subprocesses such as Chromium and Electron `--type=...` workers out of the discovered-process grid so the renderer shows app-level rows instead of every child process
-- now stores optional managed-service title colors and icon choices alongside command metadata
-- now resolves direct script-path launches through interpreter-aware command handling for common script extensions instead of requiring shell wrappers
-- persists managed `autoStart` and `watchPorts` changes back into `mewl.services.json` through the preload bridge
-- applies enabled startup profiles on Electron boot and lets the Automation view trigger grouped start/stop presets
-- validates managed commands before spawn by tokenizing plain command strings, requiring a real executable token, and checking available reserved ports
-- now derives a Docker-aware stop command for common `docker compose up ...` and named `docker run ...` flows when a Docker-managed service leaves its explicit stop command blank
-- still normalizes older config records on load so earlier command-and-args entries migrate into the newer explicit command schema before the runtime snapshot is built
-- now persists review metadata for legacy-managed entries so the renderer can explain what was normalized and let users mark the cleanup as complete
-- now persists automation history entries and bounded restart-policy settings in the managed config so automation behavior remains explainable across renderer refreshes
-- now derives richer incident alerts from runtime state and automation history, including crash loops, orphaned reserved ports, and managed-service resource spikes
-- now keeps a short in-memory metric history on the Electron side so the renderer can draw trend charts from live samples instead of static snapshots
-- keeps discovered host processes read-only so Mewl does not send lifecycle signals to processes it does not own
-- now exposes a separate observed kill path that can terminate a live pid only when it is not already claimed by a managed service
-- now supports Linux package groundwork through `electron-builder`, including generated icon resources and package metadata for AppImage, `.deb`, and `.rpm` outputs
-- the release documentation now includes published download links for the `1.0.0` Linux package artifacts
-- now forces Linux package builds into non-publishing artifact mode so CI packaging does not require GitHub release credentials
+- 用 `ps` 扫描当前用户的进程
+- 用 `lsof` 扫描绑定的 TCP 和 UDP 端口，`ss` 作为主机命令回退
+- 从本地机器采样 CPU、内存、磁盘和网络压力
+- 当主机通过 `nvidia-smi` 或 DRM sysfs 计数器暴露时采样 GPU 压力，否则回退到不可用状态
+- 把实时主机快照映射到现有的渲染层 `RuntimeSnapshot` 形状
+- 加载 `mewl.services.json` 并只管理其中明确注册的服务
+- 把托管服务配置存储在每用户应用数据位置（Linux 上是 `~/.config/mewl/mewl.services.json`），打包构建不依赖仓库检出
+- 通过 Electron 主进程中的子进程所有权启动、停止和重启托管服务
+- 重新挂接主机上已在运行的匹配托管服务，让 Mewl 重连后停止和重启仍然有效
+- 现在把托管服务视为明确的已保存定义，带启动命令加可选的停止和重启命令
+- 现在存储明确的托管服务模式（`command`、`script` 或 `docker`），让保存的配置、编辑器文案和运行时行为保持一致
+- 现在把 Chromium 和 Electron `--type=...` worker 等辅助子进程从发现进程网格中过滤掉，让渲染层显示应用级行而不是每个子进程
+- 现在在命令元数据旁存储可选的托管服务标题颜色和图标选择
+- 现在通过解释器感知的命令处理解析直接脚本路径启动，覆盖常见脚本扩展名，而不是要求 shell 包装
+- 通过 preload 桥接把托管的 `autoStart` 和 `watchPorts` 变更持久化回 `mewl.services.json`
+- 在 Electron 启动时应用已启用的启动配置，并让自动化视图触发成组启动/停止预设
+- 在 spawn 前验证托管命令：分词普通命令字符串、要求真实的可执行 token、检查可用的预留端口
+- 当 Docker 托管服务的明确停止命令留空时，现在为常见 `docker compose up ...` 和命名 `docker run ...` 流程推导 Docker 感知的停止命令
+- 仍在加载时归一化旧配置记录，让更早的「命令 + 参数」条目在运行时快照构建前迁移到较新的明确命令 schema
+- 现在为旧托管条目持久化审核元数据，让渲染层能解释什么被归一化，并让用户把清理标记为完成
+- 现在在托管配置中持久化自动化历史条目和有界重启策略设置，让自动化行为在渲染层刷新后仍然可解释
+- 现在从运行时状态和自动化历史推导更丰富的事件告警，包括崩溃循环、孤儿预留端口和托管服务资源飙升
+- 现在在 Electron 侧保存短的内存指标历史，让渲染层从实时样本绘制趋势图而不是静态快照
+- 让发现的主机进程保持只读，Mewl 不会向不拥有的进程发送生命周期信号
+- 现在暴露单独的观测终止路径，只在实时 pid 未被托管服务占用时才允许结束它
+- 现在通过 `electron-builder` 支持 Linux 打包基础，包括生成的图标资源和 AppImage、`.deb`、`.rpm` 输出的包元数据
+- 发行文档现在包含 `1.0.0` Linux 包产物的公开下载链接
+- 现在强制 Linux 包构建进入非发布产物模式，CI 打包不再需要 GitHub 发布凭据
 
 ### `electron/main.cjs`
 
-Owns the Electron window boot flow for both development and production:
+负责开发和生产的 Electron 窗口启动流程：
 
-- loads the Vite dev server when `MEWL_RENDERER_URL` is present
-- loads `dist/index.html` in production mode
-- now logs `did-fail-load` and renderer-crash events so blank-window failures are easier to diagnose
-- quits the app when the main window closes so the desktop dev shell does not leave the paired Vite server stranded in the background
+- 当 `MEWL_RENDERER_URL` 存在时加载 Vite 开发服务器
+- 生产模式加载 `dist/index.html`
+- 现在记录 `did-fail-load` 和渲染层崩溃事件，让白屏失败更容易诊断
+- 主窗口关闭时退出应用，桌面开发外壳不会把配对的 Vite 服务器滞留在后台
 
 ### `vite.config.ts`
 
-Defines the renderer build and development server behavior:
+定义渲染层构建和开发服务器行为：
 
-- uses a relative `base` so production assets load correctly from Electron's `file://` path
-- binds both dev and preview to `127.0.0.1:29463` so Electron and Vite agree on the same loopback address during desktop development
+- 使用相对 `base`，生产资源可以从 Electron 的 `file://` 路径正确加载
+- 开发和预览都绑定 `127.0.0.1:29463`，让 Electron 和 Vite 在桌面开发中约定同一回环地址
 
 ### `docs/`
 
-Provides a separate documentation application for the product.
+为产品提供独立的文档应用。
 
-The docs project currently:
+文档项目当前：
 
-- uses Astro 6 with Starlight for the docs shell, routing, search, and markdown rendering
-- keeps its own package manifest, lockfile, and `docs/public/` assets so it can be built independently from the Electron app
-- mirrors the app's visual direction with Plus Jakarta Sans, Space Grotesk, a dark dot-grid background, glass-like surfaces, and Pink Pixel rose accents
-- includes end-user installation, product overview, workspace-tour, managed-service, and diagnostics pages seeded with the current Mewl screenshots
-- includes Cloudflare Pages deployment wiring through `docs/wrangler.toml` plus Wrangler-backed preview and deploy scripts
-- relies on repo ignore rules that now exclude docs-generated Astro cache output and Wrangler local state from Git
+- 使用 Astro 6 加 Starlight 作为文档外壳、路由、搜索和 markdown 渲染
+- 保留自己的包清单、锁文件和 `docs/public/` 资源，可以独立于 Electron 应用构建
+- 用 Plus Jakarta Sans、Space Grotesk、深色点阵背景、玻璃质感和 Pink Pixel 玫瑰强调镜像应用的视觉方向
+- 包含以当前 Mewl 截图为种子的终端用户安装、产品概览、工作区导览、托管服务和诊断页面
+- 包含通过 `docs/wrangler.toml` 加 Wrangler 预览和部署脚本的 Cloudflare Pages 部署接线
+- 依赖仓库忽略规则，现在把文档生成的 Astro 缓存输出和 Wrangler 本地状态排除在 Git 之外
 
 ### `src/styles.css`
 
-Holds the visual system outside component logic:
+保存组件逻辑之外的视觉系统：
 
-- Google font imports
-- Tailwind import
-- dark ambient background gradients
-- dotted pattern overlay
-- SVG noise overlay
-- frosted glass panel styling
-- animation keyframes
+- Google 字体导入
+- Tailwind 导入
+- 深色环境背景渐变
+- 点状图案覆盖
+- SVG 噪点覆盖
+- 磨砂玻璃面板样式
+- 动画关键帧
 
-## Layout Model
+## 布局模型
 
-The current app is organized into five major workspace zones:
+当前应用组织为五个主要工作区区域：
 
-1. Left navigation rail
-2. Sidebar host health plus compact machine snapshot
-3. Workspace header with search, scan, and alert tray
-4. Overview summary cards
-5. Dashboard preview panels for processes and port bindings
-6. Dedicated full pages for processes, managed services, ports, and monitoring
+1. 左侧导航栏
+2. 侧边栏主机健康加紧凑机器快照
+3. 带搜索、扫描和告警托盘的工作区页头
+4. 概览摘要卡片
+5. 进程和端口绑定的仪表盘预览面板
+6. 进程、托管服务、端口和监控的专属完整页面
 
-This structure keeps the app close to the original mockup mood while making the main surface useful for real local-ops workflows.
+这种结构让应用贴近原始 mockup 的氛围，同时让主表面可用于真实的本地运维工作流。
 
-## Interaction Model
+## 交互模型
 
-- search input uses `useDeferredValue` to keep filtering responsive
-- workspace changes use `startTransition` to keep view switching lightweight
-- lifecycle actions use `useTransition` to coordinate non-blocking start, stop, restart, save, remove, and scan operations with the Electron bridge
-- the workspace hydrates from the runtime contract and restores saved session state from local storage on boot
-- the sidebar can collapse to icon-only navigation for a roomier workspace
-- process cards can expand in place for more detail before the full inspector is needed
-- managed-service modal edits and automation toggles round-trip through the Electron bridge
-- managed lifecycle actions and explicit command hooks append to stdout/stderr log tails from the live runtime
-- automation history now records manual actions, runtime autostarts, profile runs, unexpected exits, and policy retries even though the service-level toggles now live on the Managed cards
-- observed-process draft creation jumps directly into the Managed workspace with a review banner and prefilled launch details
-- the Managed workspace now prioritizes card density, using a two-column desktop grid with modal editing so the main surface stays filled with services instead of form chrome
-- managed cards now show service mode without repeating a redundant `managed` ownership pill on every card in the Managed workspace
-- observed-process termination is framed as a live pid action rather than a managed-service edit
-- button glow behavior follows Sparklebots interaction patterns
-- progress indicators and animated signal bars add motion without crowding the layout
-- the monitor page now keeps noisy service command details collapsed until explicitly expanded
-- the monitor page now prioritizes width over height so the workspace no longer builds one oversized leading column
-- alert visibility uses local `useState` and conditional rendering for the top-right tray
-- alert filtering uses local state plus runtime-provided metadata so the tray can narrow incidents without leaving the current workspace
-- monitor visuals combine quiet renderer polling with runtime-provided history series so the charts keep moving during an active desktop session
-- the top command bar now owns a higher stacking layer so the alerts tray stays above the dashboard cards
-- Linux packaging now runs from one command path, regenerating icons from `public/icon.png` before building AppImage, `.deb`, and `.rpm` artifacts into `release/`
-- the release docs now include an expanded README screenshot gallery covering overview, processes, managed, ports, and multiple monitor and ports detail views
-- the standalone docs site now extends that documentation surface with a dedicated Starlight homepage and screenshot-backed guides that stay visually aligned with the desktop shell
+- 搜索输入使用 `useDeferredValue` 保持筛选的响应性
+- 工作区切换使用 `startTransition` 保持视图切换轻量
+- 生命周期操作使用 `useTransition`，与 Electron 桥接协调非阻塞的启动、停止、重启、保存、移除和扫描操作
+- 工作区从运行时契约加载，并在启动时从本地存储恢复已保存的会话状态
+- 侧边栏可以折叠为仅图标导航，换得更宽敞的工作区
+- 进程卡片可以就地展开查看更多细节，然后才需要完整检查器
+- 托管服务弹窗编辑和自动化开关通过 Electron 桥接往返
+- 托管生命周期操作和明确命令钩子从实时运行时追加到 stdout/stderr 日志尾部
+- 自动化历史现在记录手动操作、运行时自启动、配置档运行、意外退出和策略重试，即使服务级开关现在位于托管卡片上
+- 观测进程草稿创建直接跳入托管工作区，带审核横幅和预填启动详情
+- 托管工作区现在优先卡片密度，使用两列桌面网格加弹窗编辑，让主表面填满服务而不是表单装饰
+- 托管卡片现在显示服务模式，而不在托管工作区的每张卡片上重复冗余的 `managed` 归属徽标
+- 观测进程终止被框定为实时 pid 操作，而不是托管服务编辑
+- 按钮光晕行为遵循 Sparklebots 交互模式
+- 进度指示器和动画信号条增加动感而不挤占布局
+- 监控页面现在把噪音服务的命令详情折叠直到明确展开
+- 监控页面现在优先宽度而非高度，工作区不再构建一根过大的前导列
+- 告警可见性使用本地 `useState` 和条件渲染实现右上托盘
+- 告警筛选使用本地状态加运行时提供的元数据，托盘可以在不离开当前工作区的情况下收窄事件
+- 监控可视化结合安静的渲染层轮询和运行时提供的历史序列，让图表在桌面会话期间持续移动
+- 顶部命令栏现在拥有更高的堆叠层，告警托盘保持在仪表盘卡片之上
+- Linux 打包现在从一条命令路径运行，在构建 AppImage、`.deb`、`.rpm` 产物到 `release/` 之前从 `public/icon.png` 重新生成图标
+- 发行文档现在包含扩展的 README 截图画廊，覆盖概览、进程、托管、端口以及多个监控和端口详情视图
+- 独立文档站点现在用专属 Starlight 首页和截图背书的指南扩展该文档面，视觉上与桌面外壳保持一致
 
-## Current Limitations
+## 当前限制
 
-- Electron is the required runtime host, and lifecycle plus managed settings currently cover only services and startup profiles registered in `mewl.services.json`
-- config persistence now assumes a per-user desktop install path rather than a repo-local JSON file
-- shell operators such as pipes, redirects, and compound command chains are still intentionally unsupported in the managed command parser
-- Docker-aware launch and stop flows now have first-class support in the managed editor, but deeper container state inspection and Compose metadata introspection still need a future pass
-- richer bulk-import tooling is still pending, but legacy `mewl.services.json` entries can now be reviewed and cleared from the Managed editor
-- no auth, multi-user roles, or workspace sync
-- no testing suite yet
-- the runtime bridge is still Linux-first, so packaged Linux builds are the supported delivery target while Windows host inspection remains out of scope for now
-- the local terminal environment used for automated verification still reports an Electron bootstrap issue before the app process fully initializes, so the fix here was validated by build output and runtime-path inspection rather than a successful interactive Electron launch in-tool
-- `1.0.0` should be read as the first stable Linux release rather than the end of all platform and quality work
+- Electron 是必需的运行时宿主，生命周期和托管设置目前只覆盖注册在 `mewl.services.json` 中的服务和启动配置
+- 配置持久化现在假设每用户桌面安装路径，而不是仓库本地的 JSON 文件
+- 管道、重定向和复合命令链等 shell 操作符在托管命令解析器中仍然刻意不受支持
+- Docker 感知的启动和停止流程现在在托管编辑器中有一等支持，但更深的容器状态检查和 Compose 元数据内省仍需未来一轮迭代
+- 更丰富的批量导入工具仍在计划中，但旧 `mewl.services.json` 条目现在可以从托管编辑器审查和清除
+- 没有认证、多用户角色或工作区同步
+- 还没有测试套件
+- 运行时桥接仍是 Linux 优先，打包的 Linux 构建是受支持的交付目标，Windows 主机检查目前不在范围内
+- 用于自动验证的本地终端环境仍在应用进程完全初始化前报告一个 Electron 引导问题，所以这里的修复是通过构建输出和运行时路径检查验证的，而不是工具内成功的交互式 Electron 启动
+- `1.0.0` 应被理解为首个稳定的 Linux 发行版，而不是所有平台和质量工作的终点
 
-## Extension Points
+## 扩展点
 
-- keep expanding the Electron-backed adapter exposed through the runtime provider
-- expand lifecycle control beyond the starter managed-service config and add richer service definitions, environment handling, and exit diagnostics
-- continue splitting observed runtime inspection from managed-service authoring, including import cleanup for older inferred configs and richer review ergonomics for prefilled drafts
-- keep evolving the managed editor with richer validation, deeper Docker reconciliation, and more complete runtime-aware import flows
-- add live port discovery and collision detection from the host machine
-- persist workspace profiles, startup groups, and automation presets beyond the single local session model
-- add richer charts, searchable logs, streaming tails, and deeper process detail panes
-- add broader cross-platform host adapters if Mewl ever needs to package beyond Linux
+- 继续扩展通过运行时 provider 暴露的 Electron 后端适配器
+- 把生命周期控制扩展到起步的托管服务配置之外，添加更丰富的服务定义、环境处理和退出诊断
+- 继续分离观测运行时检查与托管服务编写，包括旧推断配置的导入清理和预填草稿的更丰富审核体验
+- 持续演进托管编辑器，加入更丰富的验证、更深的 Docker 对账和更完整的运行时感知导入流程
+- 从主机机器添加实时端口发现和冲突检测
+- 把工作区配置档、启动组和自动化预设持久化到单一本地会话模型之外
+- 添加更丰富的图表、可搜索日志、流式尾部和更深的进程详情面板
+- 如果 Mewl 将来需要打包到 Linux 之外，添加更广泛的跨平台主机适配器
