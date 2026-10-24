@@ -464,6 +464,105 @@ export const en = {
   "command.ruleSaveFailed": "The desktop bridge could not save that rule.",
   "command.ruleEnabled": "Enabled {rule}.",
   "command.ruleDisabled": "Disabled {rule}.",
+
+  // Navigation — Terminal workspace / 侧边栏导航 — Terminal 工作区
+  "nav.terminal": "Terminal",
+
+  // Terminal workspace / Terminal 工作区
+  "terminal.title": "Terminal",
+  "terminal.subtitle": "Interactive PTY sessions for quick host work and service debugging.",
+  "terminal.newSession": "New session",
+  "terminal.newSessionAria": "Create a new terminal session",
+  "terminal.cwdLabel": "Working directory",
+  "terminal.cwdPlaceholder": "~/projects (blank = home)",
+  "terminal.closeSession": "Close session",
+  "terminal.sessionClosed": "Session ended (exit {code}).",
+  "terminal.sessionKilled": "Session closed.",
+  "terminal.noSessions": "No open terminal sessions.",
+  "terminal.noSessionsDetail":
+    "Start a new session, or run a managed service in a terminal from the Managed workspace.",
+  "terminal.runInTerminal": "Run in terminal",
+  "terminal.desktopOnly": "Terminal sessions require the Electron desktop bridge.",
+  "terminal.createFailed": "The desktop bridge could not start a terminal session.",
+  "terminal.killFailed": "The desktop bridge could not close that terminal session.",
+  "terminal.commandTag": "cmd",
+
+  // Settings modal / 设置弹窗
+  "settings.title": "Settings",
+  "settings.subtitle": "Desktop behavior, retention, and update preferences.",
+  "settings.closeAria": "Close settings",
+  "settings.desktopOnly": "Settings can only be changed from the Electron desktop bridge.",
+  "settings.section.general": "General",
+  "settings.section.retention": "History retention",
+  "settings.section.updates": "Updates",
+  "settings.showWindowOnStartup": "Show window on startup",
+  "settings.showWindowOnStartupDetail": "Open the Mewl window when the desktop app launches.",
+  "settings.closeToTray": "Close to tray",
+  "settings.closeToTrayDetail": "Closing the window keeps Mewl running in the system tray.",
+  "settings.logRetentionDays": "Log files retention (days)",
+  "settings.logRetentionDaysDetail": "Daily service and system log files older than this are deleted.",
+  "settings.historyRetentionDays": "Trend history retention (days)",
+  "settings.historyRetentionDaysDetail": "Monitor trends and port history older than this are pruned.",
+  "settings.autoCheckUpdates": "Check for updates automatically",
+  "settings.autoCheckUpdatesDetail": "Ask GitHub Releases for new versions shortly after launch.",
+  "settings.saved": "Settings saved.",
+  "settings.saveFailed": "The desktop bridge could not save settings.",
+  "settings.openLogs": "Open logs folder",
+  "settings.openLogsFailed": "The desktop bridge could not open the logs folder.",
+  "settings.updateUnsupported":
+    "In-app updates require the packaged AppImage build. deb/rpm installs update through the system package manager.",
+  "settings.checkUpdates": "Check for updates",
+  "settings.downloadUpdate": "Download update",
+  "settings.installUpdate": "Restart and update",
+  "settings.updateChecking": "Checking for updates…",
+  "settings.updateAvailable": "Version {version} is available.",
+  "settings.updateNotAvailable": "You are on the latest version.",
+  "settings.updateDownloading": "Downloading… {percent}%",
+  "settings.updateDownloaded": "Version {version} downloaded and ready.",
+  "settings.updateError": "Update check failed: {message}",
+  "settings.updateIdle": "Not checked yet.",
+
+  // Jobs / 一次性任务
+  "jobs.sectionTitle": "One-time jobs",
+  "jobs.badge": "job",
+  "jobs.status.completed": "completed",
+  "jobs.status.failed": "failed",
+  "jobs.run": "Run",
+  "jobs.runCount": "{count} run{|s}",
+  "jobs.lastRunExit": "Last exit: {code}",
+
+  // Editor additions / 编辑器新增
+  "editor.lifecycle.title": "Run style",
+  "editor.lifecycle.service": "Service",
+  "editor.lifecycle.serviceDetail": "Long-running process with lifecycle controls.",
+  "editor.lifecycle.job": "One-time job",
+  "editor.lifecycle.jobDetail": "Runs once to completion; results land in history.",
+  "editor.env.title": "Environment variables",
+  "editor.env.detail": "Merged over the inherited environment when the service starts.",
+  "editor.env.keyPlaceholder": "KEY",
+  "editor.env.valuePlaceholder": "value",
+  "editor.env.add": "Add variable",
+  "editor.env.remove": "Remove variable",
+  "editor.env.invalidKey": "Env keys must look like VAR_NAME.",
+
+  // Monitor window selector / 监控时间窗口
+  "monitor.window.15m": "15 minutes",
+  "monitor.window.1h": "1 hour",
+  "monitor.window.24h": "24 hours",
+  "monitor.window.7d": "7 days",
+
+  // Ports history / 端口历史
+  "ports.history.title": "Recent binding history",
+  "ports.history.empty": "No recorded bindings for this port yet.",
+  "ports.history.bound": "bound",
+  "ports.history.released": "released",
+
+  // Logs page addition / 日志页新增
+  "logs.openDirectory": "Open logs folder",
+
+  // Status pills / 状态徽标
+  "status.completed": "completed",
+  "status.failed": "failed",
 } as const;
 
 export type TranslationKey = keyof typeof en;

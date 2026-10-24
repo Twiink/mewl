@@ -4,6 +4,8 @@ const path = require("node:path");
 const { execFile, spawn } = require("node:child_process");
 const { promisify } = require("node:util");
 const { createConsola } = require("consola");
+const logFileSink = require("./log-files.cjs");
+const { getSettings } = require("./settings.cjs");
 
 const execFileAsync = promisify(execFile);
 const processLimit = 18;
@@ -15,10 +17,37 @@ const defaultRestartLimit = 3;
 const metricHistoryLimit = 24;
 const unifiedLogLimit = 1200;
 const unifiedLogFlushDelayMs = 140;
+// Background history sampling runs in the main process so trends survive
+// across renderer refreshes and app restarts. Samples persist to disk and are
+// pruned by the historyRetentionDays setting.
+// 历史采样在主进程后台运行，使趋势数据跨渲染层刷新与应用重启存续。
+// 样本会落盘，并按 historyRetentionDays 设置清理。
+const metricSampleIntervalMs = 30 * 1000;
+const metricHistoryFlushIntervalMs = 5 * 60 * 1000;
+const metricHistoryWindowMs = 7 * 24 * 60 * 60 * 1000;
+const monitorWindowRanges = {
+  "15m": 15 * 60 * 1000,
+  "1h": 60 * 60 * 1000,
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+};
+const monitorWindowPointLimit = 240;
+const portWatchIntervalMs = 10 * 1000;
+const portHistoryEventLimit = 5000;
+const portHistoryPerPortLimit = 10;
 const repoRoot = process.cwd();
 const managedServiceState = new Map();
 const metricHistoryState = new Map();
 let autoStartInitialized = false;
+let historyTimersInitialized = false;
+let metricSampleTimer = null;
+let metricFlushTimer = null;
+let portWatchTimer = null;
+let metricHistoryDirty = false;
+let portHistoryDirty = false;
+let previousPortBindingKeys = null;
+const persistentMetricHistory = { samples: [] };
+const portHistoryEvents = [];
 const defaultInheritedEnvKeys = ["PATH", "HOME", "LANG", "TERM", "USER", "LOGNAME", "SHELL"];
 const serviceConfigFileName = "mewl.services.json";
 const emptyManagedConfig = {
@@ -121,6 +150,8 @@ const runtimeDictionaries = {
     "log.degradedKernel": "This process is reporting a non-running kernel state.",
 
     "history.exited": "{name} exited",
+    "history.jobCompleted": "{name} completed successfully",
+    "history.jobFailed": "{name} failed with exit code {code}",
     "history.exitedUnexpectedly": "{name} exited unexpectedly",
     "history.exitedDetail": "Mewl recorded: {exit}",
     "history.restartLimitReached": "{name} reached restart policy limit",
@@ -277,6 +308,10 @@ const runtimeDictionaries = {
     "messages.nowObservedOnly": "{name} is now observed only.",
     "messages.profileEnabled": "{title} enabled.",
     "messages.profileDisabled": "{title} disabled.",
+
+    "tray.show": "Show Mewl",
+    "tray.quit": "Quit Mewl",
+    "tray.tooltip": "Mewl — local operations dashboard",
   },
   zh: {
     "action.stop": "停止",
@@ -337,6 +372,8 @@ const runtimeDictionaries = {
     "log.degradedKernel": "该进程上报了非运行中的内核状态。",
 
     "history.exited": "{name} 已退出",
+    "history.jobCompleted": "{name} 运行成功完成",
+    "history.jobFailed": "{name} 运行失败，退出码 {code}",
     "history.exitedUnexpectedly": "{name} 意外退出",
     "history.exitedDetail": "Mewl 已记录：{exit}",
     "history.restartLimitReached": "{name} 已达到重启策略上限",
@@ -472,6 +509,10 @@ const runtimeDictionaries = {
     "messages.nowObservedOnly": "{name} 已恢复为仅观测状态。",
     "messages.profileEnabled": "{title} 已启用。",
     "messages.profileDisabled": "{title} 已停用。",
+
+    "tray.show": "显示 Mewl",
+    "tray.quit": "退出 Mewl",
+    "tray.tooltip": "Mewl — 本地运维仪表盘",
   },
 };
 
@@ -479,10 +520,31 @@ const runtimeDictionaries = {
 // 语言初始为英文，渲染进程挂载后跟随其设置。
 let runtimeLocale = "en";
 
+const runtimeLocaleListeners = new Set();
+
 function setRuntimeLocale(locale) {
   if (locale === "zh" || locale === "en") {
     runtimeLocale = locale;
   }
+
+  // Main-process surfaces that bake labels at creation time (the tray menu)
+  // rebuild themselves when the locale flips.
+  // 在创建时固化文案的主进程界面（托盘菜单）在语言切换时自行重建。
+  for (const listener of runtimeLocaleListeners) {
+    try {
+      listener(runtimeLocale);
+    } catch (_error) {
+      // Locale listeners are UI refresh hints and never block a locale write.
+      // 语言监听器只是界面刷新提示，不能阻塞语言写入。
+    }
+  }
+}
+
+function onRuntimeLocaleChanged(listener) {
+  runtimeLocaleListeners.add(listener);
+  return () => {
+    runtimeLocaleListeners.delete(listener);
+  };
 }
 
 function rt(key, params) {
@@ -638,6 +700,10 @@ function formatInternalLogMessage(args = []) {
 
 function rememberUnifiedLogEvent(event, { broadcast = false } = {}) {
   logBroker.emit(event, { broadcast });
+  // Every unified event also lands in the on-disk daily log files, so the
+  // workspace stream is reconstructable after the app closes.
+  // 每条统一事件同时落入按天拆分的日志文件，应用关闭后仍可回溯。
+  logFileSink.queueWrite(event);
 }
 
 function getUnifiedLogSnapshot() {
@@ -847,6 +913,8 @@ function getConfigRootPath() {
 }
 
 const serviceConfigPath = path.join(getConfigRootPath(), "mewl", serviceConfigFileName);
+const metricHistoryFilePath = path.join(getConfigRootPath(), "mewl", "metrics-history.json");
+const portHistoryFilePath = path.join(getConfigRootPath(), "mewl", "port-history.json");
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1124,8 +1192,318 @@ function rememberMetricSample(metric) {
   return next;
 }
 
+// --- Persistent metric + port history ---------------------------------------
+// The renderer polls every few seconds, but trend data must survive restarts,
+// so the main process keeps its own cadence and flushes to disk. hydrate calls
+// also feed the ring with a throttle so the very first minutes after boot are
+// not empty.
+// 渲染层每几秒轮询一次，但趋势数据必须跨重启存续，因此主进程维护自己的
+// 采样节奏并落盘。hydrate 调用也会按节流写入环形缓冲，保证开机后最初
+// 几分钟不为空。
+
+function pushMetricHistorySample(sample) {
+  const samples = persistentMetricHistory.samples;
+  const last = samples[samples.length - 1];
+  if (last && sample.t - last.t < metricSampleIntervalMs / 2) {
+    return;
+  }
+
+  samples.push(sample);
+  const cutoff = Date.now() - metricHistoryWindowMs;
+  while (samples.length > 0 && samples[0].t < cutoff) {
+    samples.shift();
+  }
+
+  metricHistoryDirty = true;
+}
+
+function sampleMetricsIntoHistory(metrics) {
+  pushMetricHistorySample({
+    t: Date.now(),
+    cpu: metrics.cpu.value,
+    memory: metrics.memory.value,
+    disk: metrics.disk.value,
+    network: metrics.network.value,
+    gpu: metrics.gpu.available ? metrics.gpu.value : null,
+  });
+}
+
+function downsampleMetricSamples(samples) {
+  if (samples.length <= monitorWindowPointLimit) {
+    return samples;
+  }
+
+  const step = samples.length / monitorWindowPointLimit;
+  const picked = [];
+  for (let index = 0; index < samples.length; index += step) {
+    picked.push(samples[Math.floor(index)]);
+  }
+
+  if (picked[picked.length - 1] !== samples[samples.length - 1]) {
+    picked.push(samples[samples.length - 1]);
+  }
+
+  return picked;
+}
+
+function buildWindowedMonitorHistory(metrics, monitorWindow) {
+  const range = monitorWindowRanges[monitorWindow] ?? monitorWindowRanges["1h"];
+  const cutoff = Date.now() - range;
+  const windowSamples = downsampleMetricSamples(
+    persistentMetricHistory.samples.filter((sample) => sample.t >= cutoff),
+  );
+
+  // Feed the live sample through the same throttle so hydrate-driven views and
+  // the background sampler share one ring.
+  // 实时样本走同一节流入口，使 hydrate 驱动的视图与后台采样共享一个环形缓冲。
+  sampleMetricsIntoHistory(metrics);
+  const liveSample = {
+    cpu: metrics.cpu.value,
+    memory: metrics.memory.value,
+    disk: metrics.disk.value,
+    network: metrics.network.value,
+    gpu: metrics.gpu.available ? metrics.gpu.value : null,
+  };
+
+  const seriesById = {
+    cpu: windowSamples.map((sample) => sample.cpu),
+    memory: windowSamples.map((sample) => sample.memory),
+    disk: windowSamples.map((sample) => sample.disk),
+    network: windowSamples.map((sample) => sample.network),
+    gpu: windowSamples.map((sample) => sample.gpu ?? 0),
+  };
+  seriesById.cpu.push(liveSample.cpu);
+  seriesById.memory.push(liveSample.memory);
+  seriesById.disk.push(liveSample.disk);
+  seriesById.network.push(liveSample.network);
+  seriesById.gpu.push(liveSample.gpu ?? 0);
+
+  return [metrics.cpu, metrics.memory, metrics.disk, metrics.network, metrics.gpu].map(
+    (metric) => ({
+      id: metric.id,
+      label: metric.label,
+      detail: metric.detail,
+      values: seriesById[metric.id] ?? [],
+      displayValue: metric.displayValue,
+      available: metric.available,
+    }),
+  );
+}
+
+async function sampleHostMetricsIntoHistory() {
+  try {
+    const [cpuPercent, networkUsage, diskPercent, gpuUsage] = await Promise.all([
+      sampleCpuUsage(),
+      sampleNetworkUsage(),
+      readDiskUsage(),
+      sampleGpuUsage(),
+    ]);
+    const memoryPercent = clamp(
+      Math.round(((os.totalmem() - os.freemem()) / os.totalmem()) * 100),
+      0,
+      100,
+    );
+
+    pushMetricHistorySample({
+      t: Date.now(),
+      cpu: cpuPercent,
+      memory: memoryPercent,
+      disk: diskPercent,
+      network: networkUsage.percent,
+      gpu: gpuUsage.available ? gpuUsage.percent : null,
+    });
+  } catch (_error) {
+    // A missed background sample leaves the ring intact; the next tick
+    // continues the series.
+    // 一次后台采样失败不影响已有序列，下一个 tick 继续追加。
+  }
+}
+
+// --- Port usage history ------------------------------------------------------
+
+function recordPortHistoryEvent(event, binding) {
+  portHistoryEvents.push({
+    id: `port-history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: new Date().toISOString(),
+    event,
+    port: binding.port,
+    protocol: binding.protocol,
+    pid: binding.pid,
+    processName: binding.processName || `pid-${binding.pid}`,
+  });
+
+  while (portHistoryEvents.length > portHistoryEventLimit) {
+    portHistoryEvents.shift();
+  }
+
+  portHistoryDirty = true;
+}
+
+async function watchPortBindingChanges() {
+  try {
+    const bindings = await readPortBindings();
+    const currentKeys = new Map();
+
+    for (const binding of bindings) {
+      currentKeys.set(`${binding.protocol}:${binding.port}:${binding.pid}`, binding);
+    }
+
+    if (previousPortBindingKeys) {
+      for (const [key, binding] of currentKeys) {
+        if (!previousPortBindingKeys.has(key)) {
+          recordPortHistoryEvent("bound", binding);
+        }
+      }
+
+      for (const [key, binding] of previousPortBindingKeys) {
+        if (!currentKeys.has(key)) {
+          recordPortHistoryEvent("released", binding);
+        }
+      }
+    }
+
+    previousPortBindingKeys = currentKeys;
+  } catch (_error) {
+    // Keep the previous snapshot on a failed scan so a transient lsof miss
+    // does not emit a wave of false "released" events.
+    // 扫描失败时保留上一份快照，避免一次偶发的 lsof 失败
+    // 触发一波虚假的 released 事件。
+  }
+}
+
+function getRecentPortHistory(port, protocol) {
+  return portHistoryEvents
+    .filter((event) => event.port === port && event.protocol === protocol)
+    .slice(-portHistoryPerPortLimit)
+    .reverse();
+}
+
+// --- History persistence -----------------------------------------------------
+
+async function loadHistoryFiles() {
+  try {
+    const raw = await fs.readFile(metricHistoryFilePath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed?.samples)) {
+      const cutoff = Date.now() - metricHistoryWindowMs;
+      persistentMetricHistory.samples = parsed.samples.filter(
+        (sample) => sample && Number.isFinite(sample.t),
+      );
+      while (persistentMetricHistory.samples.length > 0 && persistentMetricHistory.samples[0].t < cutoff) {
+        persistentMetricHistory.samples.shift();
+      }
+    }
+  } catch (_error) {
+    persistentMetricHistory.samples = [];
+  }
+
+  try {
+    const raw = await fs.readFile(portHistoryFilePath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed?.events)) {
+      portHistoryEvents.push(...parsed.events.slice(-portHistoryEventLimit));
+    }
+  } catch (_error) {
+    // A missing port history file is the normal first-run state.
+    // 端口历史文件缺失是正常的首次运行状态。
+  }
+
+  metricHistoryDirty = false;
+  portHistoryDirty = false;
+}
+
+async function saveHistoryFiles() {
+  const retentionCutoff = Date.now() - getSettings().historyRetentionDays * 24 * 60 * 60 * 1000;
+
+  if (metricHistoryDirty) {
+    const cutoff = Math.max(retentionCutoff, Date.now() - metricHistoryWindowMs);
+    persistentMetricHistory.samples = persistentMetricHistory.samples.filter(
+      (sample) => sample.t >= cutoff,
+    );
+    await fs.writeFile(
+      metricHistoryFilePath,
+      `${JSON.stringify({ samples: persistentMetricHistory.samples }, null, 2)}\n`,
+      "utf8",
+    );
+    metricHistoryDirty = false;
+  }
+
+  if (portHistoryDirty) {
+    const cutoffTime = Date.parse(new Date(retentionCutoff).toISOString());
+    const retained = portHistoryEvents.filter(
+      (event) => Date.parse(event.timestamp) >= cutoffTime,
+    );
+    portHistoryEvents.length = 0;
+    portHistoryEvents.push(...retained.slice(-portHistoryEventLimit));
+    await fs.writeFile(
+      portHistoryFilePath,
+      `${JSON.stringify({ events: portHistoryEvents }, null, 2)}\n`,
+      "utf8",
+    );
+    portHistoryDirty = false;
+  }
+}
+
+function ensureHistoryTimers() {
+  if (historyTimersInitialized) {
+    return;
+  }
+
+  historyTimersInitialized = true;
+  void loadHistoryFiles();
+
+  metricSampleTimer = setInterval(() => {
+    void sampleHostMetricsIntoHistory();
+  }, metricSampleIntervalMs);
+
+  metricFlushTimer = setInterval(() => {
+    void saveHistoryFiles();
+  }, metricHistoryFlushIntervalMs);
+
+  portWatchTimer = setInterval(() => {
+    void watchPortBindingChanges();
+  }, portWatchIntervalMs);
+}
+
+async function stopHistoryTimers() {
+  if (metricSampleTimer) {
+    clearInterval(metricSampleTimer);
+    metricSampleTimer = null;
+  }
+
+  if (metricFlushTimer) {
+    clearInterval(metricFlushTimer);
+    metricFlushTimer = null;
+  }
+
+  if (portWatchTimer) {
+    clearInterval(portWatchTimer);
+    portWatchTimer = null;
+  }
+
+  await saveHistoryFiles();
+}
+
 function isSafeEnvKey(key) {
   return /^[A-Z_][A-Z0-9_]*$/i.test(key);
+}
+
+// Service-defined env vars ride along in the saved config and merge over the
+// inherited environment at spawn time. Keys follow the portable env-var shape;
+// values are coerced to strings so JSON quirks never reach the child process.
+// 服务自定义环境变量随配置保存，并在 spawn 时合并覆盖继承环境。
+// 键遵循可移植的环境变量命名；值统一转为字符串，避免 JSON 的类型
+// 怪癖泄漏进子进程。
+function sanitizeServiceEnv(env) {
+  if (!env || typeof env !== "object" || Array.isArray(env)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(env)
+      .filter(([key, value]) => isSafeEnvKey(key) && typeof value !== "object")
+      .map(([key, value]) => [key, String(value)]),
+  );
 }
 
 function trimLogEntries(entries) {
@@ -1190,6 +1568,11 @@ function getManagedState(serviceId) {
     startedAt: null,
     lastExit: rt("lastExit.noRecent"),
     lastHeartbeat: rt("heartbeat.idle"),
+    // One-time job bookkeeping: how many times the job ran this install and
+    // the exit code of the most recent finished run.
+    // 一次性任务账目：该任务安装以来的运行次数与最近一次结束运行的退出码。
+    jobRunCount: 0,
+    lastRunExit: null,
     // Pid whose reattachment was already logged. Text-based dedup broke when
     // the message template changed language, and again once the log tail
     // trimmed the old line away.
@@ -2290,6 +2673,7 @@ async function readPortBindings() {
           protocol,
           port,
           target,
+          processName: parts[0] || "",
         };
       })
       .filter(Boolean);
@@ -2306,6 +2690,7 @@ async function readPortBindings() {
       const localAddress = parts[4];
       const processDetails = parts.slice(6).join(" ");
       const pidMatch = processDetails.match(/pid=(\d+)/);
+      const nameMatch = processDetails.match(/users:\(\("([^"]+)"/);
       const port = parsePortFromTarget(localAddress);
 
       if (!pidMatch || !port) {
@@ -2317,6 +2702,7 @@ async function readPortBindings() {
         protocol: protocol.startsWith("udp") ? "udp" : "tcp",
         port,
         target: localAddress,
+        processName: nameMatch?.[1] || "",
       };
     })
     .filter(Boolean);
@@ -2361,6 +2747,7 @@ async function loadManagedConfig() {
             ? service.description
             : rt("default.description"),
         kind: normalizeManagedServiceKind(service.kind, startCommand),
+        lifecycle: service.lifecycle === "job" ? "job" : "service",
         startCommand,
         stopCommand:
           typeof service.stopCommand === "string" ? service.stopCommand.trim() : "",
@@ -2371,7 +2758,10 @@ async function loadManagedConfig() {
         group: typeof service.group === "string" ? service.group : "managed",
         watchPorts: service.watchPorts !== false,
         autoStart: service.autoStart === true,
-        restartPolicy: normalizeRestartPolicy(service.restartPolicy),
+        restartPolicy:
+          service.lifecycle === "job"
+            ? "manual"
+            : normalizeRestartPolicy(service.restartPolicy),
         restartLimit: normalizeRestartLimit(service.restartLimit),
         ports: Array.isArray(service.ports)
           ? service.ports.filter((value) => Number.isInteger(value))
@@ -2601,17 +2991,40 @@ async function handleManagedChildExit(service, serviceState, code, signal) {
   );
 
   if (!wasStopping) {
-    await recordAutomationHistory({
-      title:
-        code === 0
-          ? rt("history.exited", { name: service.name })
-          : rt("history.exitedUnexpectedly", { name: service.name }),
-      detail: rt("history.exitedDetail", { exit: serviceState.lastExit }),
-      outcome: code === 0 ? "warning" : "error",
-      source: "runtime",
-      serviceId: service.id,
-      serviceName: service.name,
-    });
+    if (service.lifecycle === "job") {
+      // Jobs record a finished run instead of an unexpected exit: exit 0 is a
+      // successful completion, anything else is a failed run.
+      // 任务记录的是一次结束的运行而非异常退出：exit 0 视为成功完成，
+      // 其他退出码视为失败运行。
+      serviceState.lastRunExit = code === null ? -1 : code;
+      serviceState.jobRunCount += 1;
+      await recordAutomationHistory({
+        title:
+          code === 0
+            ? rt("history.jobCompleted", { name: service.name })
+            : rt("history.jobFailed", { name: service.name, code: code ?? -1 }),
+        detail: rt("history.exitedDetail", { exit: serviceState.lastExit }),
+        outcome: code === 0 ? "success" : "error",
+        source: "runtime",
+        serviceId: service.id,
+        serviceName: service.name,
+      });
+    } else {
+      await recordAutomationHistory({
+        title:
+          code === 0
+            ? rt("history.exited", { name: service.name })
+            : rt("history.exitedUnexpectedly", { name: service.name }),
+        detail: rt("history.exitedDetail", { exit: serviceState.lastExit }),
+        outcome: code === 0 ? "warning" : "error",
+        source: "runtime",
+        serviceId: service.id,
+        serviceName: service.name,
+      });
+    }
+  } else if (service.lifecycle === "job") {
+    serviceState.lastRunExit = code === null ? -1 : code;
+    serviceState.jobRunCount += 1;
   }
 
   if (!shouldRestart) {
@@ -3253,6 +3666,8 @@ async function initializeManagedServices() {
   }
 
   autoStartInitialized = true;
+  await logFileSink.initLogFilePersistence();
+  ensureHistoryTimers();
   const { services, profiles } = await loadManagedConfig();
 
   for (const service of services.filter((item) => item.autoStart)) {
@@ -3521,7 +3936,15 @@ function buildAlerts(processes, ports, metrics, services, history) {
   return alerts.slice(0, 6);
 }
 
-async function hydrateRuntimeSnapshot() {
+function resolveJobStatus(service, serviceState) {
+  if (serviceState.lastRunExit === null || serviceState.lastRunExit === undefined) {
+    return "stopped";
+  }
+
+  return serviceState.lastRunExit === 0 ? "completed" : "failed";
+}
+
+async function hydrateRuntimeSnapshot({ monitorWindow } = {}) {
   runtimeLogger.debug(rt("internal.hydrating"));
   await logBroker.ensureStarted();
   await initializeManagedServices();
@@ -3573,7 +3996,9 @@ async function hydrateRuntimeSnapshot() {
       ? "starting"
       : liveProcess
         ? normalizeStatus(liveProcess.state)
-        : "stopped";
+        : service.lifecycle === "job"
+          ? resolveJobStatus(service, serviceState)
+          : "stopped";
 
     if (childPid) {
       managedPids.add(childPid);
@@ -3588,6 +4013,7 @@ async function hydrateRuntimeSnapshot() {
       cwd: resolveServiceCwd(service.cwd),
       runtime,
       kind: service.kind,
+      lifecycle: service.lifecycle === "job" ? "job" : "service",
       startCommand: service.startCommand,
       stopCommand,
       restartCommand: service.restartCommand || null,
@@ -3600,6 +4026,8 @@ async function hydrateRuntimeSnapshot() {
       uptime: liveProcess ? formatElapsed(liveProcess.elapsed) : formatManagedElapsed(serviceState.startedAt),
       restarts: serviceState.restartCount,
       lastExit: serviceState.lastExit,
+      lastRunExit: service.lifecycle === "job" ? serviceState.lastRunExit ?? null : null,
+      runCount: service.lifecycle === "job" ? serviceState.jobRunCount : 0,
       lastHeartbeat: liveProcess ? rt("heartbeat.live") : serviceState.lastHeartbeat,
       autoStart: service.autoStart,
       watchPorts: service.watchPorts,
@@ -3708,6 +4136,7 @@ async function hydrateRuntimeSnapshot() {
         target: binding.target,
         exposure,
         status,
+        history: getRecentPortHistory(binding.port, binding.protocol),
         note:
           status === "conflict"
             ? rt("ports.note.conflict")
@@ -3758,20 +4187,7 @@ async function hydrateRuntimeSnapshot() {
     },
   };
 
-  const monitorHistory = [
-    metrics.cpu,
-    metrics.memory,
-    metrics.disk,
-    metrics.network,
-    metrics.gpu,
-  ].map((metric) => ({
-    id: metric.id,
-    label: metric.label,
-    detail: metric.detail,
-    values: rememberMetricSample(metric),
-    displayValue: metric.displayValue,
-    available: metric.available,
-  }));
+  const monitorHistory = buildWindowedMonitorHistory(metrics, monitorWindow);
 
   const alerts = buildAlerts(
     [...managedProcesses, ...discoveredProcesses],
@@ -3885,6 +4301,12 @@ async function updateManagedService(processId, updates) {
         ? updates.description.trim()
         : previousService.description,
     kind: normalizeManagedServiceKind(updates.kind, startCommand),
+    lifecycle:
+      updates.lifecycle === "job" || updates.lifecycle === "service"
+        ? updates.lifecycle
+        : previousService.lifecycle === "job"
+          ? "job"
+          : "service",
     startCommand,
     stopCommand:
       typeof updates.stopCommand === "string"
@@ -3907,13 +4329,20 @@ async function updateManagedService(processId, updates) {
         ? updates.watchPorts
         : previousService.watchPorts,
     restartPolicy:
-      typeof updates.restartPolicy === "string"
+      (updates.lifecycle === "job" ? "manual" : undefined) ??
+      (typeof updates.restartPolicy === "string"
         ? normalizeRestartPolicy(updates.restartPolicy)
-        : previousService.restartPolicy,
+        : previousService.lifecycle === "job"
+          ? "manual"
+          : previousService.restartPolicy),
     restartLimit:
       typeof updates.restartLimit === "number"
         ? normalizeRestartLimit(updates.restartLimit)
         : previousService.restartLimit,
+    env:
+      updates.env && typeof updates.env === "object" && !Array.isArray(updates.env)
+        ? sanitizeServiceEnv(updates.env)
+        : previousService.env,
     titleColor:
       typeof updates.titleColor === "string" ? updates.titleColor : previousService.titleColor,
     icon: typeof updates.icon === "string" ? updates.icon : previousService.icon,
@@ -3960,6 +4389,7 @@ async function createManagedService(service) {
         ? service.description.trim()
         : rt("default.description"),
     kind: normalizeManagedServiceKind(service.kind, startCommand),
+    lifecycle: service.lifecycle === "job" ? "job" : "service",
     startCommand,
     stopCommand:
       typeof service.stopCommand === "string" ? service.stopCommand.trim() : "",
@@ -3970,11 +4400,12 @@ async function createManagedService(service) {
     group: normalizeGroup(runtime, cwd),
     watchPorts: service.watchPorts !== false,
     autoStart: service.autoStart === true,
-    restartPolicy: normalizeRestartPolicy(service.restartPolicy),
+    restartPolicy:
+      service.lifecycle === "job" ? "manual" : normalizeRestartPolicy(service.restartPolicy),
     restartLimit: normalizeRestartLimit(service.restartLimit),
     ports: [],
     inheritEnv: [...defaultInheritedEnvKeys],
-    env: {},
+    env: sanitizeServiceEnv(service.env),
     titleColor: typeof service.titleColor === "string" ? service.titleColor : "default",
     icon: typeof service.icon === "string" ? service.icon : "server",
   };
@@ -4131,6 +4562,8 @@ async function shutdownManagedServices() {
   }
 
   await logBroker.stop();
+  await stopHistoryTimers();
+  await logFileSink.stopLogFilePersistence();
 }
 
 module.exports = {
@@ -4138,6 +4571,8 @@ module.exports = {
   performProcessAction,
   setRuntimeLogBatchListener,
   setRuntimeLocale,
+  onRuntimeLocaleChanged,
+  rt,
   updateManagedService,
   createManagedService,
   removeManagedService,

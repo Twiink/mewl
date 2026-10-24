@@ -86,6 +86,16 @@ Mewl 是一个本地运维仪表盘，用于在同一个工作区内管理运行
 - 运行时加载经由一个要求 Electron 桌面桥接的 provider 层
 - 需要更多主工作区空间时收起侧边栏
 - 使用专属的 Vite 开发端口 `29463`，而不是默认的 `5173`
+- 在专属的 `Terminal` 工作区打开完整交互式 PTY 终端（node-pty + xterm.js），支持多会话标签、自定义工作目录与启动命令，并可从托管服务卡片一键「在终端中运行」
+- 把托管服务定义为常驻服务或一次性任务：任务跑完记录完成/失败状态与退出码，运行结果进入自动化历史，Managed 页提供独立的任务分组与 Run 按钮
+- 主进程独立采样并落盘监控指标历史（`metrics-history.json`），趋势图跨应用重启保留，监控页可在 15 分钟 / 1 小时 / 24 小时 / 7 天窗口间切换
+- 端口 watcher 记录每次绑定与释放事件（`port-history.json`），端口页展开任意一行即可查看该端口「之前被谁占用」的时间线
+- 统一日志流按天写入 `~/.config/mewl/logs/`（托管输出按服务拆分 stdout/stderr 文件，容器/系统/内部诊断独立成流），并按可配置保留天数自动清理
+- 系统托盘常驻：关闭窗口最小化到托盘，托盘菜单提供显示主窗口与退出，文案跟随界面语言；可选「启动时仅托盘」
+- 顶栏设置弹窗集中管理桌面行为、日志与历史保留天数，以及自动检查更新开关（持久化到 `mewl.settings.json`）
+- 应用内自动更新（electron-updater + GitHub Releases）：AppImage 构建支持检查、下载与重启安装；deb/rpm 安装引导走系统包管理器
+- 托管服务编辑器支持逐条配置环境变量（`KEY=VALUE` 行编辑），启动时合并覆盖继承环境
+- 推送 `v*` 标签即触发 GitHub Actions 自动构建并发布 AppImage/deb/rpm 到 GitHub Releases，应用内更新通道依赖同一发布产物
 
 ## 技术栈
 
@@ -94,6 +104,8 @@ Mewl 是一个本地运维仪表盘，用于在同一个工作区内管理运行
 - Vite 8
 - Tailwind CSS 4
 - lucide-react
+- xterm.js + node-pty
+- electron-updater
 - consola
 - Electron Builder
 - Astro 6

@@ -2,6 +2,23 @@
 
 本项目的所有显著变更都将记录在此文件中。
 
+## 1.1.0 - 2026-10-24
+
+新增八项能力：PTY 终端工作区、一次性任务、指标历史落盘、端口使用历史、日志文件化与保留期、系统托盘、设置弹窗、应用内自动更新，并补充环境变量编辑 UI 与 GitHub Actions 发布流程。
+
+- 新增专属 **Terminal 工作区**：基于 `node-pty` + xterm.js 的完整交互式 PTY 会话，支持多会话标签、自定义工作目录与启动命令；托管服务卡片提供「在终端中运行」，以服务命令 + 工作目录直接开调试会话
+- 新增**一次性任务（one-time jobs）**：托管服务编辑器新增「常驻服务 / 一次性任务」运行方式；任务跑完记录 `completed` / `failed` 状态与退出码，运行结果进入自动化历史，Managed 页新增任务分组网格与 Run 按钮
+- 新增**监控指标历史落盘**：主进程独立 30s 采样循环（CPU/内存/磁盘/网络/GPU），持久化到 `metrics-history.json`，跨应用重启保留；监控页新增 15 分钟 / 1 小时 / 24 小时 / 7 天趋势窗口选择器
+- 新增**端口使用历史**：主进程 10s 端口 watcher 记录绑定/释放事件（端口、协议、pid、进程名、时间），持久化 `port-history.json`；端口页行可展开查看「这个端口之前被谁占用」的时间线
+- 新增**日志文件化与保留期管理**：统一诊断流按天写入 `~/.config/mewl/logs/`（托管 stdout/stderr 按服务分文件、容器/系统/内部诊断独立流），按可配置天数自动清理；日志页与设置弹窗提供「打开日志目录」
+- 新增**系统托盘**：托盘图标 + 菜单（显示主窗口 / 退出），关闭窗口可最小化到托盘，托盘文案跟随界面语言；新增「启动时显示窗口」行为
+- 新增**设置弹窗**：桌面行为（启动显示窗口、关闭到托盘）、历史保留天数（日志 / 趋势与端口历史）、自动检查更新开关，持久化到 `mewl.settings.json`
+- 新增**应用内自动更新**：electron-updater 对接 GitHub Releases；Linux 上 AppImage 构建支持检查 / 下载 / 重启更新（deb/rpm 提示走系统包管理器）；设置弹窗内含更新状态与进度
+- 新增**环境变量编辑 UI**：托管编辑器提供键值行编辑，保存进 `service.env` 并在启动时合并覆盖继承环境（键名校验沿用 VAR_NAME 规则）
+- 新增 **GitHub Actions 发布流程**：推送 `v*` 标签自动构建 AppImage/deb/rpm 并发布到 GitHub Releases（含 `latest-linux.yml` 供 electron-updater 检查）；`build.publish` 从 `null` 切换为 GitHub provider，本地打包仍为 `--publish never`
+- 新增 `electron/settings.cjs`、`electron/log-files.cjs`、`electron/terminal.cjs`、`electron/updates.cjs` 主进程模块，preload 桥接扩展 settings / terminal / update API；`WorkspaceView` 新增 `terminal`，日志页导航图标改为 ScrollText
+- 主进程与渲染层全部新增文案接入中英双语词典
+
 [Unreleased]
 
 ## 2026-10-24

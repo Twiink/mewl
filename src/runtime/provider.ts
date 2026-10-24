@@ -4,8 +4,13 @@ import type { Locale } from "../i18n/types";
 import {
   type ManagedServiceDraft,
   type ManagedServiceUpdate,
+  type MonitorWindow,
+  type MewlSettings,
   type RuntimeSnapshot,
+  type TerminalSessionInfo,
+  type TerminalStreamPayload,
   type UnifiedLogEvent,
+  type UpdateStatus,
 } from "../data/runtime";
 
 export type HostLayerChoice = "electron";
@@ -33,7 +38,7 @@ export type RuntimeSourceDescriptor = {
 };
 
 export type MewlHostBridge = {
-  hydrateRuntimeSnapshot: () => Promise<RuntimeSnapshot>;
+  hydrateRuntimeSnapshot: (options?: { monitorWindow?: MonitorWindow }) => Promise<RuntimeSnapshot>;
   setLocale?: (locale: Locale) => Promise<void>;
   subscribeToLogs?: (listener: (events: UnifiedLogEvent[]) => void) => () => void;
   performProcessAction?: (
@@ -47,6 +52,32 @@ export type MewlHostBridge = {
   createManagedService?: (service: ManagedServiceDraft) => Promise<RuntimeActionResult>;
   removeManagedService?: (processId: string) => Promise<RuntimeActionResult>;
   applyAutomationRule?: (ruleId: string, enabled: boolean) => Promise<RuntimeActionResult>;
+
+  getSettings?: () => Promise<MewlSettings>;
+  updateSettings?: (updates: Partial<MewlSettings>) => Promise<MewlSettings>;
+  openLogsDirectory?: () => Promise<boolean>;
+
+  createTerminalSession?: (options: {
+    cwd?: string;
+    cols?: number;
+    rows?: number;
+    command?: string;
+    name?: string;
+  }) => Promise<TerminalSessionInfo>;
+  killTerminalSession?: (sessionId: string) => Promise<boolean>;
+  listTerminalSessions?: () => Promise<TerminalSessionInfo[]>;
+  writeTerminal?: (sessionId: string, data: string) => void;
+  resizeTerminal?: (sessionId: string, cols: number, rows: number) => void;
+  subscribeToTerminal?: (handlers: {
+    onData?: (payload: TerminalStreamPayload) => void;
+    onExit?: (payload: TerminalStreamPayload) => void;
+  }) => () => void;
+
+  getUpdateStatus?: () => Promise<UpdateStatus>;
+  checkForUpdates?: () => Promise<UpdateStatus>;
+  downloadUpdate?: () => Promise<UpdateStatus>;
+  installUpdate?: () => Promise<boolean>;
+  subscribeToUpdateStatus?: (listener: (status: UpdateStatus) => void) => () => void;
 };
 
 export type RuntimeActionResult = {
@@ -117,11 +148,13 @@ export function getRuntimeSourceDescriptor(): RuntimeSourceDescriptor {
   };
 }
 
-export async function hydrateRuntimeSnapshot(): Promise<RuntimeSnapshot> {
+export async function hydrateRuntimeSnapshot(
+  options?: { monitorWindow?: MonitorWindow },
+): Promise<RuntimeSnapshot> {
   const bridge = getHostBridge();
 
   if (bridge) {
-    return bridge.hydrateRuntimeSnapshot();
+    return bridge.hydrateRuntimeSnapshot(options);
   }
 
   // Thrown before any React context exists, so the error carries a key that

@@ -1,11 +1,12 @@
 {
   "name": "mewl",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Mewl local process manager for running services, ports, and system monitoring.",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
+    "postinstall": "electron-builder install-app-deps",
     "dev": "vite",
     "dev:web": "vite",
     "dev:electron": "wait-on tcp:29463 && MEWL_RENDERER_URL=http://127.0.0.1:29463 electron electron/main.cjs",
@@ -83,11 +84,18 @@
     "rpm": {
       "artifactName": "${name}-${version}.${arch}.${ext}"
     },
-    "publish": null
+    "publish": {
+      "provider": "github",
+      "owner": "pinkpixel-dev",
+      "repo": "mewl"
+    },
+    "npmRebuild": true
   },
   "dependencies": {
     "consola": "^3.4.2",
+    "electron-updater": "^6.8.11",
     "lucide-react": "^1.7.0",
+    "node-pty": "^1.1.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
@@ -96,6 +104,8 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
     "concurrently": "^9.2.1",
     "electron": "^41.1.0",
     "electron-builder": "^26.8.1",
@@ -105,5 +115,8 @@
     "typescript": "^6.0.2",
     "vite": "^8.0.3",
     "wait-on": "^9.0.4"
+  },
+  "allowScripts": {
+    "node-pty@1.1.0": true
   }
 }

@@ -4,9 +4,16 @@ export type WorkspaceView =
   | "managed"
   | "logs"
   | "ports"
-  | "monitor";
+  | "monitor"
+  | "terminal";
 
-export type ProcessStatus = "running" | "starting" | "degraded" | "stopped";
+export type ProcessStatus =
+  | "running"
+  | "starting"
+  | "degraded"
+  | "stopped"
+  | "completed"
+  | "failed";
 
 export type PortStatus = "bound" | "booting" | "standby" | "conflict";
 
@@ -67,6 +74,8 @@ export type AutomationHistoryEntry = {
   source: "manual" | "runtime" | "policy" | "profile";
 };
 
+export type ManagedServiceLifecycle = "service" | "job";
+
 export type ManagedProcess = {
   id: string;
   name: string;
@@ -76,6 +85,7 @@ export type ManagedProcess = {
   cwd: string;
   runtime: string;
   kind: ManagedServiceKind;
+  lifecycle: ManagedServiceLifecycle;
   startCommand?: string;
   stopCommand?: string | null;
   restartCommand?: string | null;
@@ -88,12 +98,15 @@ export type ManagedProcess = {
   uptime: string;
   restarts: number;
   lastExit: string;
+  lastRunExit?: number | null;
+  runCount?: number;
   lastHeartbeat: string;
   autoStart: boolean;
   watchPorts: boolean;
   restartPolicy: RestartPolicy;
   restartLimit: number;
   managed: boolean;
+  env?: Record<string, string>;
   titleColor?: ManagedServiceColor;
   icon?: ManagedServiceIcon;
   review?: ManagedServiceReview | null;
@@ -104,6 +117,7 @@ export type ManagedServiceDraft = {
   name: string;
   description: string;
   kind: ManagedServiceKind;
+  lifecycle: ManagedServiceLifecycle;
   startCommand: string;
   stopCommand: string;
   restartCommand: string;
@@ -112,12 +126,23 @@ export type ManagedServiceDraft = {
   watchPorts: boolean;
   restartPolicy: RestartPolicy;
   restartLimit: number;
+  env: Record<string, string>;
   titleColor: ManagedServiceColor;
   icon: ManagedServiceIcon;
 };
 
 export type ManagedServiceUpdate = Partial<ManagedServiceDraft> & {
   clearReview?: boolean;
+};
+
+export type PortHistoryEvent = {
+  id: string;
+  timestamp: string;
+  event: "bound" | "released";
+  port: number;
+  protocol: string;
+  pid: number;
+  processName: string;
 };
 
 export type PortBinding = {
@@ -129,6 +154,7 @@ export type PortBinding = {
   target: string;
   exposure: "public" | "local" | "internal";
   status: PortStatus;
+  history?: PortHistoryEvent[];
   note: string;
 };
 
@@ -210,4 +236,49 @@ export type RuntimeSnapshot = {
   automationRules: AutomationRule[];
   automationHistory: AutomationHistoryEntry[];
   logs: UnifiedLogEvent[];
+};
+
+export type MonitorWindow = "15m" | "1h" | "24h" | "7d";
+
+export type MewlSettings = {
+  showWindowOnStartup: boolean;
+  closeToTray: boolean;
+  logRetentionDays: number;
+  historyRetentionDays: number;
+  autoCheckUpdates: boolean;
+};
+
+export type TerminalSessionInfo = {
+  sessionId: string;
+  pid: number;
+  name: string;
+  cwd?: string;
+  command?: string | null;
+  createdAt?: number;
+};
+
+export type TerminalStreamPayload =
+  | { type: "data"; sessionId: string; data: string }
+  | { type: "exit"; sessionId: string; exitCode: number | null; killed?: boolean };
+
+export type UpdateProgress = {
+  percent: number;
+  transferred: number;
+  total: number;
+};
+
+export type UpdateStatus = {
+  status:
+    | "idle"
+    | "checking"
+    | "available"
+    | "not-available"
+    | "downloading"
+    | "downloaded"
+    | "error"
+    | "unsupported";
+  version?: string | null;
+  message?: string | null;
+  progress?: UpdateProgress | null;
+  supported?: boolean;
 };

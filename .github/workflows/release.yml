@@ -1,0 +1,34 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and publish
+        # The workflow token lets electron-builder upload the AppImage/deb/rpm
+        # artifacts plus latest-linux.yml to the GitHub release for this tag.
+        # workflow token 允许 electron-builder 将 AppImage/deb/rpm 产物
+        # 与 latest-linux.yml 上传到该 tag 对应的 GitHub Release。
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run icons:generate && npx electron-builder --publish always --linux AppImage deb rpm

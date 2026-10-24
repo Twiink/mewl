@@ -18,14 +18,18 @@ import {
   ChevronRight,
   ChevronUp,
   Database,
+  FolderOpen,
   Gauge,
   Globe,
   Languages,
   LayoutDashboard,
+  ListChecks,
   PenSquare,
   Play,
   Plus,
   RefreshCw,
+  Settings,
+  ScrollText,
   Sparkles,
   Server,
   ShieldCheck,
@@ -47,6 +51,8 @@ import {
   StatusPill,
   SugarCard,
 } from "./components/ui";
+import { SettingsModal } from "./components/settings-modal";
+import { TerminalView, RunInTerminalLauncher } from "./views/terminal-view";
 import { MewlLocalizedError } from "./i18n/localized-error";
 import { useI18n, type TranslationKey } from "./i18n";
 import {
@@ -62,6 +68,7 @@ import {
   type ManagedServiceUpdate,
   type MonitorHistorySeries,
   type MonitorMetric,
+  type MonitorWindow,
   type PortBinding,
   type ProcessLogEntry,
   type ProcessLogLevel,
@@ -140,7 +147,8 @@ const viewMeta: Array<{
   { id: "overview", labelKey: "nav.overview", icon: LayoutDashboard, hex: accent.rose },
   { id: "processes", labelKey: "nav.processes", icon: Server, hex: accent.cyan },
   { id: "managed", labelKey: "nav.managed", icon: Sparkles, hex: accent.rose },
-  { id: "logs", labelKey: "nav.logs", icon: Terminal, hex: accent.green },
+  { id: "logs", labelKey: "nav.logs", icon: ScrollText, hex: accent.green },
+  { id: "terminal", labelKey: "nav.terminal", icon: Terminal, hex: accent.cyan },
   { id: "ports", labelKey: "nav.ports", icon: Waypoints, hex: accent.purple },
   { id: "monitor", labelKey: "nav.monitor", icon: Activity, hex: accent.amber },
 ];
@@ -173,6 +181,8 @@ const processToneMap: Record<ProcessStatus, "online" | "warning" | "offline" | "
   degraded: "warning",
   stopped: "offline",
   starting: "starting",
+  completed: "online",
+  failed: "offline",
 };
 
 const processTextClassMap: Record<ProcessStatus, string> = {
@@ -180,7 +190,21 @@ const processTextClassMap: Record<ProcessStatus, string> = {
   degraded: "text-amber-200",
   stopped: "text-rose-200",
   starting: "text-cyan-200",
+  completed: "text-emerald-200",
+  failed: "text-rose-200",
 };
+
+const jobStatusLabelKeys: Record<"completed" | "failed", TranslationKey> = {
+  completed: "jobs.status.completed",
+  failed: "jobs.status.failed",
+};
+
+const monitorWindowOptions: Array<{ id: MonitorWindow; labelKey: TranslationKey }> = [
+  { id: "15m", labelKey: "monitor.window.15m" },
+  { id: "1h", labelKey: "monitor.window.1h" },
+  { id: "24h", labelKey: "monitor.window.24h" },
+  { id: "7d", labelKey: "monitor.window.7d" },
+];
 
 const lifecycleActionMeta: Record<
   Exclude<ProcessAction, "scan" | "kill">,
@@ -368,6 +392,8 @@ const processStatusLabelKeys: Record<ProcessStatus, TranslationKey> = {
   degraded: "status.degraded",
   stopped: "status.stopped",
   starting: "status.starting",
+  completed: "status.completed",
+  failed: "status.failed",
 };
 
 const portStatusLabelKeys: Record<PortStatus, TranslationKey> = {
@@ -470,6 +496,7 @@ const createEmptyManagedDraft = (): ManagedServiceDraft => ({
   name: "",
   description: "",
   kind: "command",
+  lifecycle: "service",
   startCommand: "",
   stopCommand: "",
   restartCommand: "",
@@ -478,6 +505,7 @@ const createEmptyManagedDraft = (): ManagedServiceDraft => ({
   watchPorts: true,
   restartPolicy: "manual",
   restartLimit: 3,
+  env: {},
   titleColor: "default",
   icon: "server",
 });
@@ -486,6 +514,7 @@ const createDraftFromManagedProcess = (process: ManagedProcess): ManagedServiceD
   name: process.name,
   description: process.description,
   kind: process.kind,
+  lifecycle: process.lifecycle ?? "service",
   startCommand: process.startCommand ?? process.command,
   stopCommand: process.stopCommand ?? "",
   restartCommand: process.restartCommand ?? "",
@@ -494,6 +523,7 @@ const createDraftFromManagedProcess = (process: ManagedProcess): ManagedServiceD
   watchPorts: process.watchPorts,
   restartPolicy: process.restartPolicy,
   restartLimit: process.restartLimit,
+  env: { ...(process.env ?? {}) },
   titleColor: process.titleColor ?? "default",
   icon: process.icon ?? "server",
 });
@@ -502,6 +532,7 @@ const createDraftFromObservedProcess = (process: ManagedProcess): ManagedService
   name: process.name,
   description: `Managed from the observed runtime for ${process.name}.`,
   kind: process.runtime === "docker" ? "docker" : "command",
+  lifecycle: "service",
   startCommand: process.command,
   stopCommand: "",
   restartCommand: "",
@@ -510,6 +541,7 @@ const createDraftFromObservedProcess = (process: ManagedProcess): ManagedService
   watchPorts: process.ports.length > 0,
   restartPolicy: "manual",
   restartLimit: 3,
+  env: {},
   titleColor: "default",
   icon:
     process.runtime === "docker"
@@ -640,6 +672,9 @@ function App() {
   const [logSourceFilter, setLogSourceFilter] = useState("all");
   const [logFollowTail, setLogFollowTail] = useState(true);
   const [logsPaused, setLogsPaused] = useState(false);
+  const [monitorWindow, setMonitorWindow] = useState<MonitorWindow>("1h");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [expandedPortIds, setExpandedPortIds] = useState<string[]>([]);
   const [commandState, setCommandState] = useState(() => t(defaultCommandStateKey));
   const [isPending, startActionTransition] = useTransition();
   const pausedLogBufferRef = useRef<UnifiedLogEvent[]>([]);
@@ -841,7 +876,7 @@ function App() {
     }
 
     const interval = window.setInterval(() => {
-      void hydrateRuntimeSnapshot()
+      void hydrateRuntimeSnapshot({ monitorWindow })
         .then((snapshot) => {
           setProcesses(snapshot.processes);
           setPorts(snapshot.ports);
@@ -861,7 +896,7 @@ function App() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [isLiveElectronRuntime, runtimeStatus]);
+  }, [isLiveElectronRuntime, runtimeStatus, monitorWindow]);
 
   useEffect(() => {
     if (!isLiveElectronRuntime || runtimeStatus !== "ready") {
@@ -950,7 +985,8 @@ function App() {
   );
   const visibleManagedServices = managedCleanupOnly
     ? managedServicesNeedingReview
-    : managedServices;
+    : managedServices.filter((process) => process.lifecycle !== "job");
+  const visibleManagedJobs = managedCleanupOnly ? [] : managedServices.filter((process) => process.lifecycle === "job");
   const canControlProcess = (process: ManagedProcess | null) =>
     runtimeStatus === "ready" && Boolean(process?.managed);
 
@@ -1684,6 +1720,16 @@ function App() {
       return;
     }
 
+    const envKeyPattern = /^[A-Z_][A-Z0-9_]*$/i;
+    const invalidEnvKey = Object.keys(managedDraft.env).find(
+      (key) => key.length === 0 || !envKeyPattern.test(key),
+    );
+
+    if (invalidEnvKey !== undefined) {
+      setCommandState(t("editor.env.invalidKey"));
+      return;
+    }
+
     if (isLiveElectronRuntime) {
       const createManagedService = window.mewlHost?.createManagedService;
       const updateManagedService = window.mewlHost?.updateManagedService;
@@ -2240,7 +2286,7 @@ function App() {
         />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid gap-5 xl:grid-cols-2">
         <div className={`${panelClass} flex h-full flex-col`}>
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -2799,6 +2845,11 @@ function App() {
                         hex: titleHex,
                         onClick: () => openManagedEditModal(process),
                       })}
+                      <RunInTerminalLauncher
+                        process={process}
+                        accent={accent}
+                        onLaunched={(view) => changeView(view)}
+                      />
                     </div>
                   </div>
                 </article>
@@ -2812,12 +2863,104 @@ function App() {
               : t("managed.empty.create")}
           </div>
         )}
+
+        {visibleManagedJobs.length > 0 ? (
+          <div className="pt-2">
+            <p className="flex items-center gap-2 text-[0.72rem] font-semibold uppercase tracking-[0.24em] text-white/42">
+              <ListChecks size={14} />
+              {t("jobs.sectionTitle")}
+            </p>
+            <div className="mt-4 grid gap-4 xl:grid-cols-2">
+              {visibleManagedJobs.map((process) => {
+                const titleHex = managedServiceColorMap[process.titleColor ?? "default"];
+                const Icon = managedServiceIconMap[process.icon ?? "server"];
+                const jobRunning = process.status === "starting" || process.status === "running";
+
+                return (
+                  <article
+                    key={process.id}
+                    className="rounded-[28px] border border-white/8 bg-[#0f141b]/94 p-5"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex min-w-0 flex-1 items-start gap-4">
+                        <span
+                          className="grid size-12 shrink-0 place-items-center rounded-[20px] border border-white/10 bg-black/18"
+                          style={{ color: titleHex, boxShadow: `0 0 28px ${titleHex}24` }}
+                        >
+                          <Icon size={20} />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="flex items-center gap-2 truncate text-lg font-semibold" style={{ color: titleHex }}>
+                            {process.name}
+                            <span
+                              className="rounded-full px-2 py-0.5 text-[0.6rem] uppercase tracking-[0.16em] text-white/70"
+                              style={{ backgroundColor: `${accent.amber}22` }}
+                            >
+                              {t("jobs.badge")}
+                            </span>
+                          </p>
+                          <p className="mt-1 truncate font-mono text-xs text-white/34">
+                            {process.startCommand ?? process.command}
+                          </p>
+                          <p className="mt-2 text-xs text-white/48">
+                            {t("jobs.runCount", { count: process.runCount ?? 0 })}
+                            {process.lastRunExit != null
+                              ? ` · ${t("jobs.lastRunExit", { code: process.lastRunExit })}`
+                              : ""}
+                          </p>
+                        </div>
+                      </div>
+
+                      <StatusPill
+                        tone={processToneMap[process.status]}
+                        label={
+                          process.status === "completed"
+                            ? t("jobs.status.completed")
+                            : process.status === "failed"
+                              ? t("jobs.status.failed")
+                              : undefined
+                        }
+                      />
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-4">
+                      {jobRunning ? (
+                        <StatusPill tone="starting" label={t("action.stop")} />
+                      ) : (
+                        renderManagedActionButton({
+                          label: t("jobs.run"),
+                          icon: Play,
+                          hex: accent.green,
+                          onClick: () => handleProcessAction("start", process),
+                          disabled: isPending || runtimeStatus !== "ready",
+                        })
+                      )}
+                      <div className="flex items-center gap-2">
+                        <RunInTerminalLauncher
+                          process={process}
+                          accent={accent}
+                          onLaunched={(view) => changeView(view)}
+                        />
+                        {renderManagedActionButton({
+                          label: t("action.editService"),
+                          icon: PenSquare,
+                          hex: titleHex,
+                          onClick: () => openManagedEditModal(process),
+                        })}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </div>
     </section>
   );
 
   const renderLogsPage = () => (
-    <section className="grid gap-4">
+    <section className="grid gap-5">
       <div className={panelClass}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -2863,6 +3006,19 @@ function App() {
               className="rounded-full border border-white/10 bg-black/18 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/72 transition duration-300 hover:border-white/18 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {t("action.export")}
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const ok = await window.mewlHost?.openLogsDirectory?.();
+                if (!ok) {
+                  setCommandState(t("settings.openLogsFailed"));
+                }
+              }}
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/18 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/72 transition duration-300 hover:border-white/18 hover:text-white"
+            >
+              <FolderOpen size={14} />
+              {t("logs.openDirectory")}
             </button>
           </div>
         </div>
@@ -3167,6 +3323,49 @@ function App() {
                     </div>
                   </div>
 
+                  <div className="rounded-[24px] border border-white/8 bg-[#0f141b]/94 p-4">
+                    <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
+                      {t("editor.lifecycle.title")}
+                    </p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      {([
+                        {
+                          id: "service",
+                          labelKey: "editor.lifecycle.service",
+                          detailKey: "editor.lifecycle.serviceDetail",
+                        },
+                        {
+                          id: "job",
+                          labelKey: "editor.lifecycle.job",
+                          detailKey: "editor.lifecycle.jobDetail",
+                        },
+                      ] as const).map((option) => {
+                        const selected = managedDraft.lifecycle === option.id;
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() =>
+                              setManagedDraft((current) => ({
+                                ...current,
+                                lifecycle: option.id,
+                                restartPolicy: option.id === "job" ? "manual" : current.restartPolicy,
+                              }))
+                            }
+                            className={`rounded-[18px] border px-4 py-4 text-left transition duration-300 ${
+                              selected
+                                ? "border-white/14 bg-black/26 text-white"
+                                : "border-white/8 bg-black/14 text-white/56 hover:text-white/82"
+                            }`}
+                          >
+                            <p className="text-sm font-semibold">{t(option.labelKey)}</p>
+                            <p className="mt-2 text-xs leading-5 text-white/48">{t(option.detailKey)}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   <label className="block">
                     <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">{t("editor.name")}</p>
                     <input
@@ -3263,6 +3462,78 @@ function App() {
                       placeholder="."
                     />
                   </label>
+
+                  <div className="rounded-[24px] border border-white/8 bg-[#0f141b]/94 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
+                          {t("editor.env.title")}
+                        </p>
+                        <p className="mt-1 text-xs text-white/44">{t("editor.env.detail")}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setManagedDraft((current) => ({
+                            ...current,
+                            env: { ...current.env, "": "" },
+                          }))
+                        }
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/18 px-3 py-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-white/62 transition hover:text-white"
+                      >
+                        <Plus size={12} />
+                        {t("editor.env.add")}
+                      </button>
+                    </div>
+
+                    <div className="mt-3 grid gap-2">
+                      {Object.entries(managedDraft.env).length === 0 ? (
+                        <p className="text-xs text-white/34">—</p>
+                      ) : (
+                        Object.entries(managedDraft.env).map(([key, value], index) => (
+                          <div key={`${key}-${index}`} className="flex items-center gap-2">
+                            <input
+                              className="w-[38%] rounded-[16px] border border-white/10 bg-black/22 px-3 py-2 font-mono text-xs text-white outline-none placeholder:text-white/30"
+                              value={key}
+                              placeholder={t("editor.env.keyPlaceholder")}
+                              onChange={(event) =>
+                                setManagedDraft((current) => {
+                                  const entries = Object.entries(current.env);
+                                  entries[index] = [event.target.value, entries[index][1]];
+                                  return { ...current, env: Object.fromEntries(entries) };
+                                })
+                              }
+                            />
+                            <input
+                              className="min-w-0 flex-1 rounded-[16px] border border-white/10 bg-black/22 px-3 py-2 font-mono text-xs text-white outline-none placeholder:text-white/30"
+                              value={value}
+                              placeholder={t("editor.env.valuePlaceholder")}
+                              onChange={(event) =>
+                                setManagedDraft((current) => ({
+                                  ...current,
+                                  env: { ...current.env, [key]: event.target.value },
+                                }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              aria-label={t("editor.env.remove")}
+                              onClick={() =>
+                                setManagedDraft((current) => {
+                                  const next = { ...current.env };
+                                  delete next[key];
+                                  return { ...current, env: next };
+                                })
+                              }
+                              className="grid size-8 shrink-0 place-items-center rounded-[14px] border border-white/8 bg-black/18 text-white/50 transition hover:text-rose-300"
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -3273,6 +3544,7 @@ function App() {
                     <p className="mt-3 text-sm leading-6 text-white/60">{t(managedKindMeta.guidanceKey)}</p>
                   </div>
 
+                  {managedDraft.lifecycle !== "job" ? (
                   <div className="rounded-[24px] border border-white/8 bg-[#0f141b]/94 p-4">
                     <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
                       {t("editor.restartPolicy")}
@@ -3338,6 +3610,7 @@ function App() {
                       />
                     </label>
                   </div>
+                  ) : null}
 
                   <div className="rounded-[24px] border border-white/8 bg-[#0f141b]/94 p-4">
                     <p className="text-[0.72rem] uppercase tracking-[0.22em] text-white/34">
@@ -3442,7 +3715,7 @@ function App() {
   };
 
   const renderPortsPage = () => (
-    <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.9fr)]">
+    <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.9fr)]">
       <div className={panelClass}>
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -3472,24 +3745,79 @@ function App() {
               </div>
 
               <div className="divide-y divide-white/6">
-                {filteredPorts.map((port) => (
-                  <div
-                    key={port.id}
-                    className="grid grid-cols-[72px_76px_minmax(0,1.1fr)_120px_110px_minmax(180px,1.45fr)] gap-4 px-5 py-4 transition duration-300 hover:bg-white/[0.03]"
-                  >
-                    <p className="text-sm font-semibold text-white">{port.port}</p>
-                    <p className="text-sm text-white/58 uppercase">{port.protocol}</p>
-                    <div className="min-w-0">
-                      <p className="break-words text-sm text-white/86">{port.service}</p>
-                      <p className="text-xs text-white/38">{port.note}</p>
+                {filteredPorts.map((port) => {
+                  const isExpanded = expandedPortIds.includes(port.id);
+                  const history = port.history ?? [];
+
+                  return (
+                    <div key={port.id}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedPortIds((current) =>
+                            current.includes(port.id)
+                              ? current.filter((id) => id !== port.id)
+                              : [...current, port.id],
+                          )
+                        }
+                        className="grid w-full grid-cols-[72px_76px_minmax(0,1.1fr)_120px_110px_minmax(180px,1.45fr)] gap-4 px-5 py-4 text-left transition duration-300 hover:bg-white/[0.03]"
+                      >
+                        <p className="text-sm font-semibold text-white">{port.port}</p>
+                        <p className="text-sm text-white/58 uppercase">{port.protocol}</p>
+                        <div className="min-w-0">
+                          <p className="break-words text-sm text-white/86">{port.service}</p>
+                          <p className="text-xs text-white/38">{port.note}</p>
+                        </div>
+                        <p className="text-sm capitalize text-white/62">{t(exposureLabelKeys[port.exposure])}</p>
+                        <p className={`text-sm font-medium capitalize ${portTextClassMap[port.status]}`}>
+                          {t(portStatusLabelKeys[port.status])}
+                        </p>
+                        <p className="break-all text-sm text-white/46">{port.target}</p>
+                      </button>
+
+                      {isExpanded ? (
+                        <div className="px-5 pb-5">
+                          <div className="rounded-[20px] border border-white/8 bg-black/22 p-4">
+                            <p className="text-[0.68rem] uppercase tracking-[0.22em] text-white/42">
+                              {t("ports.history.title")}
+                            </p>
+                            {history.length === 0 ? (
+                              <p className="mt-3 text-xs text-white/38">{t("ports.history.empty")}</p>
+                            ) : (
+                              <div className="mt-3 space-y-2">
+                                {history.map((entry) => (
+                                  <div
+                                    key={entry.id}
+                                    className="flex flex-wrap items-center gap-3 text-xs text-white/62"
+                                  >
+                                    <span
+                                      className={`rounded-full px-2 py-0.5 uppercase tracking-[0.16em] ${
+                                        entry.event === "bound"
+                                          ? "bg-emerald-400/12 text-emerald-200"
+                                          : "bg-white/8 text-white/56"
+                                      }`}
+                                    >
+                                      {t(
+                                        entry.event === "bound"
+                                          ? "ports.history.bound"
+                                          : "ports.history.released",
+                                      )}
+                                    </span>
+                                    <span className="font-mono text-white/72">{entry.processName}</span>
+                                    <span className="text-white/34">pid {entry.pid}</span>
+                                    <span className="text-white/34">
+                                      {formatUnifiedLogStamp(entry.timestamp)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
-                    <p className="text-sm capitalize text-white/62">{t(exposureLabelKeys[port.exposure])}</p>
-                    <p className={`text-sm font-medium capitalize ${portTextClassMap[port.status]}`}>
-                      {t(portStatusLabelKeys[port.status])}
-                    </p>
-                    <p className="break-all text-sm text-white/46">{port.target}</p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : (
@@ -3560,7 +3888,7 @@ function App() {
   );
 
   const renderMonitorPage = () => (
-    <section className="grid gap-4">
+    <section className="grid gap-5">
       <div className={panelClass}>
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -3581,7 +3909,23 @@ function App() {
                     {t("monitor.rollingPressure")}
                   </p>
                 </div>
-                <Gauge size={20} className="text-cyan-300" />
+                <div className="flex items-center gap-2">
+                  {monitorWindowOptions.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setMonitorWindow(option.id)}
+                      className={`rounded-full border px-3 py-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.18em] transition duration-300 ${
+                        monitorWindow === option.id
+                          ? "border-white/14 bg-black/26 text-white"
+                          : "border-white/8 bg-black/16 text-white/42 hover:text-white/72"
+                      }`}
+                    >
+                      {t(option.labelKey)}
+                    </button>
+                  ))}
+                  <Gauge size={20} className="text-cyan-300" />
+                </div>
               </div>
 
               <div className="mt-5 grid gap-3 xl:grid-cols-3">
@@ -3847,13 +4191,17 @@ function App() {
       return renderMonitorPage();
     }
 
+    if (activeView === "terminal") {
+      return <TerminalView accent={accent} />;
+    }
+
     return renderOverview();
   };
 
   return (
     <div className="min-h-screen px-4 py-4 text-white sm:px-5 lg:px-6">
       <div
-        className={`mewl-shell mx-auto grid min-h-[calc(100vh-2rem)] max-w-[1680px] gap-4 ${
+        className={`mewl-shell mx-auto grid min-h-[calc(100vh-2rem)] max-w-[1680px] gap-5 ${
           sidebarCollapsed
             ? "xl:grid-cols-[112px_minmax(0,1fr)]"
             : "xl:grid-cols-[292px_minmax(0,1fr)]"
@@ -3997,7 +4345,7 @@ function App() {
 
         </aside>
 
-        <main className="flex min-w-0 flex-col gap-4">
+        <main className="flex min-w-0 flex-col gap-5">
           <section className={`${panelClass} relative z-20 p-4 sm:p-5`}>
             <div className="flex flex-wrap items-center gap-3">
               <div className="min-w-[280px] flex-1">
@@ -4047,6 +4395,16 @@ function App() {
                 {locale === "en" ? "中文" : "EN"}
               </button>
 
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(true)}
+                aria-label={t("settings.title")}
+                title={t("settings.title")}
+                className="grid size-12 place-items-center rounded-[20px] border border-white/10 bg-[#0f141b]/94 text-white/72 transition duration-300 hover:border-white/18 hover:text-white"
+              >
+                <Settings size={17} />
+              </button>
+
               <div className="relative ml-auto">
                 <button
                   type="button"
@@ -4093,12 +4451,18 @@ function App() {
             ) : null}
           </section>
 
-          <div key={`${runtimeStatus}-${activeView}`}>
+          <div key={`${runtimeStatus}-${activeView}`} className="flex flex-col gap-5">
             {renderPage()}
           </div>
         </main>
       </div>
       {renderManagedEditorModal()}
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        accent={accent}
+        onMessage={setCommandState}
+      />
     </div>
   );
 }

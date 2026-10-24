@@ -432,4 +432,102 @@ export const zh: Record<TranslationKey, string> = {
   "command.ruleSaveFailed": "桌面桥接无法保存该规则。",
   "command.ruleEnabled": "已启用 {rule}。",
   "command.ruleDisabled": "已停用 {rule}。",
+
+  // Navigation — Terminal workspace / 侧边栏导航 — Terminal 工作区
+  "nav.terminal": "终端",
+
+  // Terminal workspace / Terminal 工作区
+  "terminal.title": "终端",
+  "terminal.subtitle": "交互式 PTY 会话，用于快速主机操作与服务调试。",
+  "terminal.newSession": "新建会话",
+  "terminal.newSessionAria": "创建新的终端会话",
+  "terminal.cwdLabel": "工作目录",
+  "terminal.cwdPlaceholder": "~/projects（留空 = 主目录）",
+  "terminal.closeSession": "关闭会话",
+  "terminal.sessionClosed": "会话已结束（退出码 {code}）。",
+  "terminal.sessionKilled": "会话已关闭。",
+  "terminal.noSessions": "没有打开的终端会话。",
+  "terminal.noSessionsDetail": "新建一个会话，或在托管工作区中让服务在终端内运行。",
+  "terminal.runInTerminal": "在终端中运行",
+  "terminal.desktopOnly": "终端会话需要 Electron 桌面桥接。",
+  "terminal.createFailed": "桌面桥接无法启动终端会话。",
+  "terminal.killFailed": "桌面桥接无法关闭该终端会话。",
+  "terminal.commandTag": "命令",
+
+  // Settings modal / 设置弹窗
+  "settings.title": "设置",
+  "settings.subtitle": "桌面行为、历史保留与更新偏好。",
+  "settings.closeAria": "关闭设置",
+  "settings.desktopOnly": "设置只能在 Electron 桌面桥接中修改。",
+  "settings.section.general": "常规",
+  "settings.section.retention": "历史保留",
+  "settings.section.updates": "更新",
+  "settings.showWindowOnStartup": "启动时显示窗口",
+  "settings.showWindowOnStartupDetail": "桌面应用启动时打开 Mewl 主窗口。",
+  "settings.closeToTray": "关闭到托盘",
+  "settings.closeToTrayDetail": "关闭窗口后 Mewl 继续驻留系统托盘。",
+  "settings.logRetentionDays": "日志文件保留（天）",
+  "settings.logRetentionDaysDetail": "超过该时长的按日服务与系统日志文件将被删除。",
+  "settings.historyRetentionDays": "趋势历史保留（天）",
+  "settings.historyRetentionDaysDetail": "超过该时长的监控趋势与端口历史将被清理。",
+  "settings.autoCheckUpdates": "自动检查更新",
+  "settings.autoCheckUpdatesDetail": "启动后稍后自动向 GitHub Releases 查询新版本。",
+  "settings.saved": "设置已保存。",
+  "settings.saveFailed": "桌面桥接无法保存设置。",
+  "settings.openLogs": "打开日志目录",
+  "settings.openLogsFailed": "桌面桥接无法打开日志目录。",
+  "settings.updateUnsupported":
+    "应用内更新需要打包的 AppImage 版本。deb/rpm 安装请通过系统包管理器升级。",
+  "settings.checkUpdates": "检查更新",
+  "settings.downloadUpdate": "下载更新",
+  "settings.installUpdate": "重启并更新",
+  "settings.updateChecking": "正在检查更新…",
+  "settings.updateAvailable": "发现新版本 {version}。",
+  "settings.updateNotAvailable": "已是最新版本。",
+  "settings.updateDownloading": "正在下载… {percent}%",
+  "settings.updateDownloaded": "版本 {version} 已下载完成。",
+  "settings.updateError": "更新检查失败：{message}",
+  "settings.updateIdle": "尚未检查。",
+
+  // Jobs / 一次性任务
+  "jobs.sectionTitle": "一次性任务",
+  "jobs.badge": "任务",
+  "jobs.status.completed": "已完成",
+  "jobs.status.failed": "已失败",
+  "jobs.run": "运行",
+  "jobs.runCount": "已运行 {count} 次",
+  "jobs.lastRunExit": "最近退出码：{code}",
+
+  // Editor additions / 编辑器新增
+  "editor.lifecycle.title": "运行方式",
+  "editor.lifecycle.service": "常驻服务",
+  "editor.lifecycle.serviceDetail": "长期运行的进程，带完整生命周期控制。",
+  "editor.lifecycle.job": "一次性任务",
+  "editor.lifecycle.jobDetail": "运行一次直到结束，结果记录进历史。",
+  "editor.env.title": "环境变量",
+  "editor.env.detail": "服务启动时合并覆盖继承的环境变量。",
+  "editor.env.keyPlaceholder": "键",
+  "editor.env.valuePlaceholder": "值",
+  "editor.env.add": "添加变量",
+  "editor.env.remove": "移除变量",
+  "editor.env.invalidKey": "环境变量键名需要形如 VAR_NAME。",
+
+  // Monitor window selector / 监控时间窗口
+  "monitor.window.15m": "15 分钟",
+  "monitor.window.1h": "1 小时",
+  "monitor.window.24h": "24 小时",
+  "monitor.window.7d": "7 天",
+
+  // Ports history / 端口历史
+  "ports.history.title": "最近绑定历史",
+  "ports.history.empty": "该端口暂无绑定的历史记录。",
+  "ports.history.bound": "占用",
+  "ports.history.released": "释放",
+
+  // Logs page addition / 日志页新增
+  "logs.openDirectory": "打开日志目录",
+
+  // Status pills / 状态徽标
+  "status.completed": "已完成",
+  "status.failed": "已失败",
 };
