@@ -12,6 +12,7 @@ const {
   createManagedService,
   removeManagedService,
   applyAutomationRule,
+  applyHistoryRetentionSweep,
 } = require("./runtime.cjs");
 const {
   loadSettings,
@@ -148,7 +149,12 @@ function createWindow() {
     backgroundColor: "#07090d",
     title: "Mewl",
     autoHideMenuBar: true,
-    show: getSettings().showWindowOnStartup,
+    // A hidden start is only safe when the tray can bring the window back;
+    // without one (close-to-tray off, or tray creation failed) the window
+    // must be shown or the app would be unreachable.
+    // 只有托盘能把窗口找回来时，隐藏启动才安全；没有托盘（关闭到托盘
+    // 已关，或托盘创建失败）时必须显示窗口，否则应用将无法触达。
+    show: getSettings().showWindowOnStartup || !tray,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -278,6 +284,10 @@ async function bootstrap() {
     // of waiting for the next daily sweep.
     // 缩短保留期应立即回收文件，而不是等下一次每日清理。
     void cleanupOldLogFiles();
+    // History files follow the same promise: prune now rather than at the
+    // next 5-minute flush.
+    // 历史文件同样立即裁剪，而非等下一次 5 分钟落盘。
+    void applyHistoryRetentionSweep();
 
     // The tray follows the close-to-tray preference: lazily created when it
     // turns on, destroyed when it turns off so a closed window really quits.
@@ -286,6 +296,14 @@ async function bootstrap() {
     if (settings.closeToTray) {
       createTray();
     } else {
+      // If the window is currently hidden to the tray, surface it before the
+      // tray goes away — the app must never end up with no visible window
+      // and no tray to restore it from.
+      // 若窗口当前隐藏在托盘，先把它显示出来再销毁托盘——
+      // 应用绝不能落入既无可见窗口又无托盘可恢复的状态。
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+        mainWindow.show();
+      }
       destroyTray();
     }
 
@@ -300,7 +318,14 @@ async function bootstrap() {
     rebuildTrayMenu();
   });
 
-  createTray();
+  // The tray must also follow close-to-tray on boot, not just on settings
+  // changes: otherwise a restart would silently re-create it and closing the
+  // window would strand a headless app again.
+  // 启动时托盘同样要跟随 close-to-tray，而非仅在设置变化时跟随：
+  // 否则重启会静默重建托盘，关窗会再次把应用搁浅为无窗口驻留。
+  if (getSettings().closeToTray) {
+    createTray();
+  }
 
   if (getSettings().showWindowOnStartup || BrowserWindow.getAllWindows().length === 0) {
     mainWindow = createWindow();

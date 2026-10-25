@@ -55,6 +55,13 @@ export function TerminalView({ accent }: { accent: { rose: string; cyan: string 
 
   sessionsRef.current = sessions;
   activeRef.current = activeSessionId;
+  // The subscription effect must not depend on t: a locale flip would dispose
+  // and recreate the shared xterm instance. The ref keeps the latest
+  // translator for message rendering instead.
+  // 订阅 effect 不能依赖 t：切换语言会销毁并重建共享的 xterm 实例。
+  // 改用 ref 持有最新的翻译函数来渲染提示文案。
+  const tRef = useRef(t);
+  tRef.current = t;
 
   const rememberBufferData = useCallback((sessionId: string, data: string) => {
     const buffers = buffersRef.current;
@@ -187,8 +194,8 @@ export function TerminalView({ accent }: { accent: { rose: string; cyan: string 
         );
         setLastMessage(
           payload.killed
-            ? t("terminal.sessionKilled")
-            : t("terminal.sessionClosed", { code: payload.exitCode ?? "-" }),
+            ? tRef.current("terminal.sessionKilled")
+            : tRef.current("terminal.sessionClosed", { code: payload.exitCode ?? "-" }),
         );
       },
     });
@@ -205,7 +212,7 @@ export function TerminalView({ accent }: { accent: { rose: string; cyan: string 
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [bridge, ensureTerminal, rememberBufferData, t]);
+  }, [bridge, ensureTerminal, rememberBufferData]);
 
   // Tab activation swaps the shared xterm onto the session's replayed buffer
   // and re-fits the PTY, covering both user switches and adopted sessions.

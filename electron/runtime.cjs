@@ -1463,10 +1463,10 @@ async function writeFileAtomic(filePath, contents) {
   }
 }
 
-async function saveHistoryFiles() {
+async function saveHistoryFiles({ force = false } = {}) {
   const retentionCutoff = Date.now() - getSettings().historyRetentionDays * 24 * 60 * 60 * 1000;
 
-  if (metricHistoryDirty) {
+  if (metricHistoryDirty || force) {
     const cutoff = Math.max(retentionCutoff, Date.now() - metricHistoryWindowMs);
     persistentMetricHistory.samples = persistentMetricHistory.samples.filter(
       (sample) => sample.t >= cutoff,
@@ -1478,7 +1478,7 @@ async function saveHistoryFiles() {
     metricHistoryDirty = false;
   }
 
-  if (portHistoryDirty) {
+  if (portHistoryDirty || force) {
     const cutoffTime = Date.parse(new Date(retentionCutoff).toISOString());
     const retained = portHistoryEvents.filter(
       (event) => Date.parse(event.timestamp) >= cutoffTime,
@@ -1493,13 +1493,18 @@ async function saveHistoryFiles() {
   }
 }
 
-function ensureHistoryTimers() {
+async function ensureHistoryTimers() {
   if (historyTimersInitialized) {
     return;
   }
 
+  // The load completes before the flag flips, so "initialized" always means
+  // "loaded": a settings-driven retention sweep fired between the two would
+  // otherwise force-write empty state over the on-disk history.
+  // 先完成加载再翻转标记，使「已初始化」恒等于「已加载」：
+  // 否则加载完成前触发的设置保留期清理会把空状态强制写进磁盘上的历史文件。
+  await loadHistoryFiles();
   historyTimersInitialized = true;
-  void loadHistoryFiles();
 
   metricSampleTimer = setInterval(() => {
     void sampleHostMetricsIntoHistory();
@@ -1628,6 +1633,12 @@ function getManagedState(serviceId) {
     // 已记录过重挂接日志的 pid。按日志文本去重在语言切换或日志被裁剪后都会失效，
     // 因此改用状态标记。
     reattachLoggedPid: null,
+    // Pid of the process a stop just tore down. The immediate relaunch may
+    // still see its sockets in the port scan, so the reserved-port check
+    // pardons it once and consumes it.
+    // 刚被停止流程拆掉的进程 pid。紧随其后的重启可能仍在端口扫描里看到它的
+    // 套接字，因此保留端口检查对其豁免一次，用后即消费。
+    lastStoppedPid: null,
     logs: {
       stdout: [],
       stderr: [],
@@ -3429,6 +3440,13 @@ async function startManagedService(service, source = "manual") {
   serviceState.starting = true;
   serviceState.stopping = false;
   serviceState.adoptedPid = null;
+  // Consume the just-stopped pid before the port check: the previous
+  // incarnation's dying sockets must not block the relaunch, but the pardon
+  // is single-use so a long-recycled pid can never mask a real conflict.
+  // 端口检查前消费「刚停止的 pid」：上一进程垂死的套接字不能阻断重启，
+  // 但豁免仅一次，久后被复用的 pid 绝不能掩盖真实冲突。
+  const previousIncarnationPid = serviceState.lastStoppedPid ?? null;
+  serviceState.lastStoppedPid = null;
   serviceState.launchSource = source;
   if (source !== "policy") {
     serviceState.policyRestartCount = 0;
@@ -3443,7 +3461,7 @@ async function startManagedService(service, source = "manual") {
   const cwd = resolveServiceCwd(service.cwd);
   const env = buildManagedEnvironment(service);
   const { executable, args } = await resolveCommandSpec(service.startCommand, env.PATH, cwd);
-  await assertReservedPortsAvailable(service, [serviceState.adoptedPid]);
+  await assertReservedPortsAvailable(service, [previousIncarnationPid]);
 
   // Each run starts with a clean spawn ledger; a previous ENOENT-style
   // failure must not swallow this run's exit accounting.
@@ -3599,6 +3617,11 @@ async function stopManagedService(service, source = "manual") {
   const stopCommand = getManagedStopCommand(service);
   if (stopCommand) {
     serviceState.stopping = true;
+    // Remember the pid this stop flow targets so an immediate relaunch can
+    // pardon its lingering sockets in the reserved-port check.
+    // 记住本次停止流程针对的 pid，紧随其后的重启可在保留端口检查中
+    // 豁免其残留套接字。
+    serviceState.lastStoppedPid = serviceState.child?.pid ?? serviceState.adoptedPid ?? null;
     appendManagedLogEntry(
       serviceState.logs,
       "stdout",
@@ -3643,6 +3666,7 @@ async function stopManagedService(service, source = "manual") {
   );
 
   const child = serviceState.child;
+  serviceState.lastStoppedPid = child?.pid ?? serviceState.adoptedPid ?? null;
   if (child && child.exitCode === null) {
     if (process.platform === "win32") {
       child.kill("SIGTERM");
@@ -3805,7 +3829,7 @@ async function initializeManagedServices() {
 
   autoStartInitialized = true;
   await logFileSink.initLogFilePersistence();
-  ensureHistoryTimers();
+  await ensureHistoryTimers();
   const { services, profiles } = await loadManagedConfig();
 
   // Jobs are one-shot by definition: auto-starting them on every launch would
@@ -4695,6 +4719,21 @@ async function applyAutomationRule(ruleId, enabled) {
   throw new Error(rt("errors.ruleNotManaged"));
 }
 
+// A shortened history retention window should reclaim data on disk
+// immediately instead of at the next 5-minute flush; before the first hydrate
+// loads the files there is nothing to prune, and force-writing then would
+// wipe the persisted history with empty state.
+// 缩短历史保留期应立即回收磁盘数据，而不是等下一次 5 分钟落盘；
+// 首次 hydrate 加载文件之前没有可清理的内容，此时强制写入反而会用
+// 空状态抹掉已持久化的历史。
+async function applyHistoryRetentionSweep() {
+  if (!historyTimersInitialized) {
+    return;
+  }
+
+  await saveHistoryFiles({ force: true });
+}
+
 async function shutdownManagedServices() {
   const { services } = await loadManagedConfig();
 
@@ -4721,5 +4760,6 @@ module.exports = {
   createManagedService,
   removeManagedService,
   applyAutomationRule,
+  applyHistoryRetentionSweep,
   shutdownManagedServices,
 };
