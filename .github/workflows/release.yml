@@ -24,6 +24,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build renderer bundle
+        # dist/ is gitignored, so the renderer must be built in CI before
+        # electron-builder packages it into the asar.
+        # dist/ 不入库，CI 必须先构建渲染层，electron-builder 才能打进 asar。
+        run: npm run build
+
       - name: Build and publish
         # The workflow token lets electron-builder upload the AppImage/deb/rpm
         # artifacts plus latest-linux.yml to the GitHub release for this tag.

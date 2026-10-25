@@ -15,10 +15,14 @@ let cleanupTimer = null;
 let writeChain = Promise.resolve();
 
 function formatDayStamp(timestamp) {
+  // Local-time day buckets: users read "today's log" by their own clock, so
+  // files must roll over at local midnight, not UTC midnight.
+  // 按本地时间分日：用户按自己的时钟理解“今天的日志”，因此文件应在
+  // 本地午夜滚动，而非 UTC 午夜。
   const date = new Date(timestamp);
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  return `${date.getUTCFullYear()}${month}${day}`;
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}${month}${day}`;
 }
 
 function sanitizeFileToken(value) {
@@ -85,20 +89,24 @@ async function flushPendingWrites() {
   await fs.mkdir(logsDirectory, { recursive: true });
 
   // Serialize appends per tick so concurrent flushes never interleave partial
-  // lines inside the same file.
+  // lines inside the same file. Each link swallows its own failure: one bad
+  // append must not leave the chain rejected, which would silently drop
+  // every later write until restart.
   // 每个 tick 内串行追加，避免并发 flush 在同一文件中交错半行。
+  // 每个链节自行吞掉失败：单次追加失败不能让链条保持 rejected 状态，
+  // 否则重启前的所有后续写入都会被静默丢弃。
   writeChain = writes.reduce(
     (chain, [fileName, content]) =>
-      chain.then(() => fs.appendFile(path.join(logsDirectory, fileName), content, "utf8")),
+      chain
+        .then(() => fs.appendFile(path.join(logsDirectory, fileName), content, "utf8"))
+        .catch((_error) => {
+          // Per-file failures are isolated; the next flush retries fresh data.
+          // 单文件失败被隔离；下一次 flush 会重试新数据。
+        }),
     writeChain,
   );
 
-  try {
-    await writeChain;
-  } catch (_error) {
-    // A failed disk append must never take down the runtime log stream.
-    // 磁盘追加失败不能拖垮运行时日志流。
-  }
+  await writeChain;
 }
 
 async function cleanupOldLogFiles() {

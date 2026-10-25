@@ -21,6 +21,7 @@ import {
   FolderOpen,
   Gauge,
   Globe,
+  History,
   Languages,
   LayoutDashboard,
   ListChecks,
@@ -2950,6 +2951,55 @@ function App() {
                       </div>
                     </div>
                   </article>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {automationHistory.length > 0 ? (
+          <div className="pt-2">
+            <p className="flex items-center gap-2 text-[0.72rem] font-semibold uppercase tracking-[0.24em] text-white/42">
+              <History size={14} />
+              {t("jobs.historyTitle")}
+            </p>
+            <div className="mt-4 grid gap-2">
+              {automationHistory.slice(0, 8).map((entry) => {
+                const outcomeColor =
+                  entry.outcome === "error"
+                    ? "#fb7185"
+                    : entry.outcome === "warning"
+                      ? "#fbbf24"
+                      : "#6ee7b7";
+                const stampMs = Date.parse(entry.stamp);
+                const stampText = Number.isNaN(stampMs)
+                  ? "--:--:--"
+                  : new Intl.DateTimeFormat("en-US", {
+                      month: "2-digit",
+                      day: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: false,
+                    }).format(new Date(stampMs));
+
+                return (
+                  <div
+                    key={entry.id}
+                    className="flex items-start justify-between gap-3 rounded-[18px] border border-white/8 bg-black/18 px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-white/78">{entry.title}</p>
+                      {entry.detail ? (
+                        <p className="mt-0.5 truncate text-xs text-white/40">{entry.detail}</p>
+                      ) : null}
+                    </div>
+                    <span
+                      className="shrink-0 text-[0.62rem] font-semibold uppercase tracking-[0.16em]"
+                      style={{ color: outcomeColor }}
+                    >
+                      {stampText}
+                    </span>
+                  </div>
                 );
               })}
             </div>

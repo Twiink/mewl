@@ -47,7 +47,11 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "build/icons/png/**",
       "package.json"
+    ],
+    "asarUnpack": [
+      "**/node_modules/node-pty/**"
     ],
     "extraMetadata": {
       "main": "electron/main.cjs"

@@ -152,6 +152,7 @@ const runtimeDictionaries = {
     "history.exited": "{name} exited",
     "history.jobCompleted": "{name} completed successfully",
     "history.jobFailed": "{name} failed with exit code {code}",
+    "history.jobStopped": "{name} was stopped before finishing",
     "history.exitedUnexpectedly": "{name} exited unexpectedly",
     "history.exitedDetail": "Mewl recorded: {exit}",
     "history.restartLimitReached": "{name} reached restart policy limit",
@@ -374,6 +375,7 @@ const runtimeDictionaries = {
     "history.exited": "{name} 已退出",
     "history.jobCompleted": "{name} 运行成功完成",
     "history.jobFailed": "{name} 运行失败，退出码 {code}",
+    "history.jobStopped": "{name} 在结束前被手动停止",
     "history.exitedUnexpectedly": "{name} 意外退出",
     "history.exitedDetail": "Mewl 已记录：{exit}",
     "history.restartLimitReached": "{name} 已达到重启策略上限",
@@ -1164,6 +1166,35 @@ function trimAutomationHistory(entries) {
   return entries.slice(0, automationHistoryLimit);
 }
 
+// Job terminal state persists in the service config so completed/failed,
+// exit codes, and run counts survive restarts; the in-memory state map only
+// seeds from it when pristine.
+// 任务终态持久化在服务配置中，使 completed/failed、退出码与运行次数跨
+// 重启存续；内存状态表只在初始为空时从中回填。
+async function persistJobRunState(serviceId, lastRunExit, jobRunCount) {
+  const config = await loadManagedConfig();
+  const services = config.services.map((service) =>
+    service.id === serviceId ? { ...service, lastRunExit, jobRunCount } : service,
+  );
+  await saveManagedConfig({ ...config, services });
+}
+
+function seedJobStateFromConfig(services) {
+  for (const service of services) {
+    if (service.lifecycle !== "job") {
+      continue;
+    }
+
+    const serviceState = getManagedState(service.id);
+    if (serviceState.lastRunExit === null && Number.isFinite(service.lastRunExit)) {
+      serviceState.lastRunExit = service.lastRunExit;
+    }
+    if (serviceState.jobRunCount === 0 && service.jobRunCount > 0) {
+      serviceState.jobRunCount = service.jobRunCount;
+    }
+  }
+}
+
 function hoursSinceStamp(stamp) {
   const parsed = Date.parse(stamp);
   if (Number.isNaN(parsed)) {
@@ -1412,6 +1443,26 @@ async function loadHistoryFiles() {
   portHistoryDirty = false;
 }
 
+// Write-through JSON state via tmp+rename so a crash mid-write can never
+// leave a truncated file behind (history and services config are read back
+// on next boot). The tmp name is unique per write: concurrent writers share
+// the directory, and a fixed name would let one rename steal another's file.
+// 通过 tmp+rename 写 JSON 状态，崩溃时的半截写入不会留下被截断的文件
+//（历史与服务配置都会在下次启动时读回）。tmp 名每次唯一：并发写入共享
+// 目录，固定名字会让一次 rename 拿走别人的文件。
+async function writeFileAtomic(filePath, contents) {
+  const tempPath = `${filePath}.${process.pid}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}.tmp`;
+  try {
+    await fs.writeFile(tempPath, contents, "utf8");
+    await fs.rename(tempPath, filePath);
+  } catch (error) {
+    await fs.unlink(tempPath).catch(() => {});
+    throw error;
+  }
+}
+
 async function saveHistoryFiles() {
   const retentionCutoff = Date.now() - getSettings().historyRetentionDays * 24 * 60 * 60 * 1000;
 
@@ -1420,10 +1471,9 @@ async function saveHistoryFiles() {
     persistentMetricHistory.samples = persistentMetricHistory.samples.filter(
       (sample) => sample.t >= cutoff,
     );
-    await fs.writeFile(
+    await writeFileAtomic(
       metricHistoryFilePath,
       `${JSON.stringify({ samples: persistentMetricHistory.samples }, null, 2)}\n`,
-      "utf8",
     );
     metricHistoryDirty = false;
   }
@@ -1435,10 +1485,9 @@ async function saveHistoryFiles() {
     );
     portHistoryEvents.length = 0;
     portHistoryEvents.push(...retained.slice(-portHistoryEventLimit));
-    await fs.writeFile(
+    await writeFileAtomic(
       portHistoryFilePath,
       `${JSON.stringify({ events: portHistoryEvents }, null, 2)}\n`,
-      "utf8",
     );
     portHistoryDirty = false;
   }
@@ -2763,6 +2812,18 @@ async function loadManagedConfig() {
             ? "manual"
             : normalizeRestartPolicy(service.restartPolicy),
         restartLimit: normalizeRestartLimit(service.restartLimit),
+        // Job terminal state rides in the config so completed/failed status,
+        // exit codes, and run counts survive app restarts.
+        // 任务终态随配置保存，使 completed/failed 状态、退出码与运行次数
+        // 在应用重启后仍然可见。
+        lastRunExit:
+          service.lifecycle === "job" && Number.isFinite(service.lastRunExit)
+            ? service.lastRunExit
+            : null,
+        jobRunCount:
+          service.lifecycle === "job" && Number.isFinite(service.jobRunCount)
+            ? Math.max(0, Math.round(service.jobRunCount))
+            : 0,
         ports: Array.isArray(service.ports)
           ? service.ports.filter((value) => Number.isInteger(value))
           : [],
@@ -2906,14 +2967,33 @@ async function loadManagedConfig() {
 
 async function saveManagedConfig(config) {
   await ensureManagedConfigFile();
-  await fs.writeFile(
+  await writeFileAtomic(
     serviceConfigPath,
     `${JSON.stringify(config, null, 2)}\n`,
-    "utf8",
   );
 }
 
-async function recordAutomationHistory(entry) {
+// Serialize config read-modify-write cycles. Job exits, automation events,
+// and editor saves all load the config, mutate, and write back; without a
+// queue, interleaved pairs silently drop whichever save lands first.
+// 串行化配置的读-改-写循环。任务退出、自动化事件与编辑器保存都会
+// 读取配置、修改并写回；没有队列时，交错的写对会静默丢失先落盘的一方。
+let managedConfigWriteChain = Promise.resolve();
+
+function withManagedConfigWrite(task) {
+  const run = managedConfigWriteChain.then(task, task);
+  managedConfigWriteChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+// Unserialized core; callers that bundle multiple config writes must use
+// withManagedConfigWrite and call this directly (nested queueing deadlocks).
+// 非串行化核心；需要打包多次配置写入的调用方必须使用
+// withManagedConfigWrite 并直接调用本函数（嵌套排队会死锁）。
+async function recordAutomationHistoryEntry(entry) {
   const config = await loadManagedConfig();
   const createdEntry = createAutomationHistoryEntry(entry);
   config.history = trimAutomationHistory([createdEntry, ...config.history]);
@@ -2937,6 +3017,11 @@ async function recordAutomationHistory(entry) {
     },
     { broadcast: true },
   );
+  return createdEntry;
+}
+
+async function recordAutomationHistory(entry) {
+  return withManagedConfigWrite(() => recordAutomationHistoryEntry(entry));
 }
 
 function resolveServiceCwd(relativeCwd) {
@@ -2992,22 +3077,38 @@ async function handleManagedChildExit(service, serviceState, code, signal) {
 
   if (!wasStopping) {
     if (service.lifecycle === "job") {
+      if (serviceState.spawnFailed) {
+        // The spawn "error" path already finalized this run; Node can still
+        // emit a spurious exit afterwards, which must not double-count.
+        // spawn 的 error 路径已为本次运行记账；Node 之后仍可能派发一次
+        // exit，不能重复计数。
+        serviceState.spawnFailed = false;
+        return;
+      }
+
       // Jobs record a finished run instead of an unexpected exit: exit 0 is a
       // successful completion, anything else is a failed run.
       // 任务记录的是一次结束的运行而非异常退出：exit 0 视为成功完成，
       // 其他退出码视为失败运行。
       serviceState.lastRunExit = code === null ? -1 : code;
       serviceState.jobRunCount += 1;
-      await recordAutomationHistory({
-        title:
-          code === 0
-            ? rt("history.jobCompleted", { name: service.name })
-            : rt("history.jobFailed", { name: service.name, code: code ?? -1 }),
-        detail: rt("history.exitedDetail", { exit: serviceState.lastExit }),
-        outcome: code === 0 ? "success" : "error",
-        source: "runtime",
-        serviceId: service.id,
-        serviceName: service.name,
+      // Persist terminal state and the history entry as one queued write pair
+      // so a concurrently exiting job cannot interleave between them.
+      // 把终态与历史记录作为一个排队的写对落盘，
+      // 避免同时退出的任务在两者之间交错写入。
+      await withManagedConfigWrite(async () => {
+        await persistJobRunState(service.id, serviceState.lastRunExit, serviceState.jobRunCount);
+        await recordAutomationHistoryEntry({
+          title:
+            code === 0
+              ? rt("history.jobCompleted", { name: service.name })
+              : rt("history.jobFailed", { name: service.name, code: code ?? -1 }),
+          detail: rt("history.exitedDetail", { exit: serviceState.lastExit }),
+          outcome: code === 0 ? "success" : "error",
+          source: "runtime",
+          serviceId: service.id,
+          serviceName: service.name,
+        });
       });
     } else {
       await recordAutomationHistory({
@@ -3023,8 +3124,18 @@ async function handleManagedChildExit(service, serviceState, code, signal) {
       });
     }
   } else if (service.lifecycle === "job") {
-    serviceState.lastRunExit = code === null ? -1 : code;
-    serviceState.jobRunCount += 1;
+    // A manual stop is not a finished run: the previous completed/failed
+    // verdict stays on record and only a history entry is written.
+    // 手动停止不算一次结束的运行：保留上一次 completed/failed 的结论，
+    // 只补一条历史记录。
+    await recordAutomationHistory({
+      title: rt("history.jobStopped", { name: service.name }),
+      detail: rt("history.exitedDetail", { exit: serviceState.lastExit }),
+      outcome: "warning",
+      source: "runtime",
+      serviceId: service.id,
+      serviceName: service.name,
+    });
   }
 
   if (!shouldRestart) {
@@ -3147,6 +3258,27 @@ function attachChildListeners(service, serviceState, child) {
       ),
       service,
     );
+    if (service.lifecycle === "job") {
+      // A job that never spawned is still a failed run: ENOENT and friends
+      // often fire "error" without a usable "exit".
+      // 从未成功 spawn 的任务也算一次失败运行：ENOENT 等错误常常只触发
+      // error 而没有可用的 exit。
+      serviceState.spawnFailed = true;
+      serviceState.lastRunExit = -1;
+      serviceState.jobRunCount += 1;
+      void withManagedConfigWrite(async () => {
+        await persistJobRunState(service.id, -1, serviceState.jobRunCount);
+        await recordAutomationHistoryEntry({
+          title: rt("history.jobFailed", { name: service.name, code: -1 }),
+          detail: error.message,
+          outcome: "error",
+          source: serviceState.launchSource === "policy" ? "policy" : serviceState.launchSource,
+          serviceId: service.id,
+          serviceName: service.name,
+        });
+      });
+      return;
+    }
     void recordAutomationHistory({
       title: rt("history.startFailed", { name: service.name }),
       detail: error.message,
@@ -3312,6 +3444,12 @@ async function startManagedService(service, source = "manual") {
   const env = buildManagedEnvironment(service);
   const { executable, args } = await resolveCommandSpec(service.startCommand, env.PATH, cwd);
   await assertReservedPortsAvailable(service, [serviceState.adoptedPid]);
+
+  // Each run starts with a clean spawn ledger; a previous ENOENT-style
+  // failure must not swallow this run's exit accounting.
+  // 每次运行重置 spawn 记账；上一次 ENOENT 类失败不能吞掉
+  // 本次运行的退出记账。
+  serviceState.spawnFailed = false;
 
   const child = spawn(executable, args, {
     cwd,
@@ -3670,7 +3808,11 @@ async function initializeManagedServices() {
   ensureHistoryTimers();
   const { services, profiles } = await loadManagedConfig();
 
-  for (const service of services.filter((item) => item.autoStart)) {
+  // Jobs are one-shot by definition: auto-starting them on every launch would
+  // re-run finished work, so they are excluded from the boot sweep.
+  // 任务是一次性的：每次启动都自动拉起会重复执行已完成的工作，
+  // 因此把它们排除出开机扫描。
+  for (const service of services.filter((item) => item.autoStart && item.lifecycle !== "job")) {
     try {
       await startManagedService(service, "runtime");
     } catch (error) {
@@ -3960,6 +4102,7 @@ async function hydrateRuntimeSnapshot({ monitorWindow } = {}) {
       loadManagedConfig(),
     ]);
   const { services, profiles, history } = config;
+  seedJobStateFromConfig(services);
 
   await Promise.all(
     services
@@ -4033,6 +4176,7 @@ async function hydrateRuntimeSnapshot({ monitorWindow } = {}) {
       watchPorts: service.watchPorts,
       restartPolicy: service.restartPolicy,
       restartLimit: service.restartLimit,
+      env: sanitizeServiceEnv(service.env),
       managed: true,
       titleColor: service.titleColor,
       icon: service.icon,

@@ -36,14 +36,14 @@ const {
   downloadUpdate,
   installUpdate,
 } = require("./updates.cjs");
-const { getLogsDirectory } = require("./log-files.cjs");
+const { getLogsDirectory, cleanupOldLogFiles } = require("./log-files.cjs");
 
 const devServerUrl = process.env.MEWL_RENDERER_URL;
 
 let mainWindow = null;
 let tray = null;
-let suppressCloseToTray = false;
 let updateAutoCheckTimer = null;
+let shutdownStarted = false;
 
 function resolveTrayIconPath() {
   // Linux tray icons must come from the filesystem (nativeImage paths from
@@ -59,13 +59,44 @@ function createTray() {
     return;
   }
 
-  const icon = nativeImage.createFromPath(resolveTrayIconPath());
-  tray = new Tray(icon);
+  try {
+    const icon = nativeImage.createFromPath(resolveTrayIconPath());
+    if (icon.isEmpty()) {
+      // A tray with no icon is invisible on Linux panels; skip the tray and
+      // let close-to-tray degrade to a normal window close instead.
+      // 无图标的托盘在 Linux 面板上不可见；跳过托盘，
+      // 让关闭到托盘退化为普通关窗行为。
+      console.warn("Mewl tray icon missing at", resolveTrayIconPath());
+      return;
+    }
+
+    tray = new Tray(icon);
+  } catch (error) {
+    // Tray construction must never block the window bootstrap.
+    // 托盘构造绝不能阻断主窗口启动。
+    console.warn("Mewl tray could not be created", error);
+    return;
+  }
+
   rebuildTrayMenu();
 
   tray.on("double-click", () => {
     showMainWindow();
   });
+}
+
+function destroyTray() {
+  if (!tray) {
+    return;
+  }
+
+  try {
+    tray.destroy();
+  } catch (_error) {
+    // A half-destroyed tray is harmless; the reference is cleared either way.
+    // 半销毁状态的托盘无害；引用无论如何都会被清除。
+  }
+  tray = null;
 }
 
 function rebuildTrayMenu() {
@@ -243,15 +274,26 @@ async function bootstrap() {
   });
 
   onSettingsChanged((settings) => {
-    if (!settings.closeToTray) {
-      return;
+    // A shortened retention window should reclaim files immediately instead
+    // of waiting for the next daily sweep.
+    // 缩短保留期应立即回收文件，而不是等下一次每日清理。
+    void cleanupOldLogFiles();
+
+    // The tray follows the close-to-tray preference: lazily created when it
+    // turns on, destroyed when it turns off so a closed window really quits.
+    // 托盘跟随 close-to-tray 偏好：开启时惰性创建，关闭时销毁，
+    // 保证关掉该选项后关窗即真正退出。
+    if (settings.closeToTray) {
+      createTray();
+    } else {
+      destroyTray();
     }
 
-    // Tray-dependent settings only apply while the tray exists; creating it
-    // lazily here covers the first run where defaults enable close-to-tray.
-    // 依赖托盘的设置只在托盘存在时生效；这里惰性创建托盘，
-    // 覆盖默认开启 close-to-tray 的首次运行。
-    createTray();
+    if (settings.autoCheckUpdates) {
+      scheduleAutoUpdateCheck();
+    } else {
+      cancelAutoUpdateCheck();
+    }
   });
 
   onRuntimeLocaleChanged(() => {
@@ -268,14 +310,30 @@ async function bootstrap() {
     showMainWindow();
   });
 
-  if (getSettings().autoCheckUpdates && isUpdateSupported()) {
-    updateAutoCheckTimer = setTimeout(() => {
-      void checkForUpdates().catch(() => {
-        // A failed background update check stays silent until the user asks.
-        // 后台更新检查失败时保持静默，等待用户主动查询。
-      });
-    }, 15 * 1000);
+  if (getSettings().autoCheckUpdates) {
+    scheduleAutoUpdateCheck();
   }
+}
+
+function cancelAutoUpdateCheck() {
+  if (updateAutoCheckTimer) {
+    clearTimeout(updateAutoCheckTimer);
+    updateAutoCheckTimer = null;
+  }
+}
+
+function scheduleAutoUpdateCheck() {
+  if (updateAutoCheckTimer || !isUpdateSupported()) {
+    return;
+  }
+
+  updateAutoCheckTimer = setTimeout(() => {
+    updateAutoCheckTimer = null;
+    void checkForUpdates().catch(() => {
+      // A failed background update check stays silent until the user asks.
+      // 后台更新检查失败时保持静默，等待用户主动查询。
+    });
+  }, 15 * 1000);
 }
 
 app.setName("Mewl");
@@ -292,14 +350,29 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", async () => {
+app.on("before-quit", (event) => {
   app.isQuitting = true;
+  cancelAutoUpdateCheck();
 
-  if (updateAutoCheckTimer) {
-    clearTimeout(updateAutoCheckTimer);
-    updateAutoCheckTimer = null;
+  // Electron does not await async before-quit handlers; holding the quit once
+  // lets managed services stop and the log/metric/port history flush before
+  // the process really exits. The re-issued quit passes through.
+  // Electron 不会等待异步 before-quit 处理器；先拦下一次退出，
+  // 让托管服务停止、日志与指标/端口历史落盘完成后再真正退出。
+  // 二次发起的 quit 会直接放行。
+  if (shutdownStarted) {
+    return;
   }
 
+  shutdownStarted = true;
+  event.preventDefault();
   killAllTerminalSessions();
-  await shutdownManagedServices();
+  shutdownManagedServices()
+    .catch((_error) => {
+      // Shutdown is best-effort; quit proceeds even if a child misbehaves.
+      // 关闭是尽力而为；即使子进程行为异常也继续退出。
+    })
+    .finally(() => {
+      app.quit();
+    });
 });

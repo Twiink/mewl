@@ -452,6 +452,8 @@ export const zh: Record<TranslationKey, string> = {
   "terminal.desktopOnly": "终端会话需要 Electron 桌面桥接。",
   "terminal.createFailed": "桌面桥接无法启动终端会话。",
   "terminal.killFailed": "桌面桥接无法关闭该终端会话。",
+  "terminal.limitReached": "终端会话数已达上限，请先关闭一个会话。",
+  "terminal.cwdInvalid": "工作目录不存在。",
   "terminal.commandTag": "命令",
 
   // Settings modal / 设置弹窗
@@ -487,6 +489,7 @@ export const zh: Record<TranslationKey, string> = {
   "settings.updateDownloading": "正在下载… {percent}%",
   "settings.updateDownloaded": "版本 {version} 已下载完成。",
   "settings.updateError": "更新检查失败：{message}",
+  "settings.updateRequestFailed": "桌面桥接请求失败",
   "settings.updateIdle": "尚未检查。",
 
   // Jobs / 一次性任务
@@ -497,6 +500,7 @@ export const zh: Record<TranslationKey, string> = {
   "jobs.run": "运行",
   "jobs.runCount": "已运行 {count} 次",
   "jobs.lastRunExit": "最近退出码：{code}",
+  "jobs.historyTitle": "运行历史",
 
   // Editor additions / 编辑器新增
   "editor.lifecycle.title": "运行方式",

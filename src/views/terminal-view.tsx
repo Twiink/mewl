@@ -13,6 +13,12 @@ import type { TerminalSessionInfo } from "../data/runtime";
 // 与当前聚焦的标签。
 type ViewSession = TerminalSessionInfo & { closed: boolean };
 
+// One xterm instance is shared across tabs, so each session keeps its own
+// scrollback here and replays it whenever its tab becomes active.
+// 多标签共享一个 xterm 实例，因此每个会话保留自己的回滚缓冲，
+// 标签激活时重放到终端。
+const scrollbackLimitChars = 128 * 1024;
+
 const terminalTheme = {
   background: "#0f141b",
   foreground: "#e6e1d7",
@@ -43,15 +49,47 @@ export function TerminalView({ accent }: { accent: { rose: string; cyan: string 
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const sessionsRef = useRef<ViewSession[]>([]);
+  const buffersRef = useRef<Map<string, string>>(new Map());
   const activeRef = useRef("");
+  const disposedRef = useRef(false);
 
   sessionsRef.current = sessions;
   activeRef.current = activeSessionId;
 
-  const activeSession = useMemo(
-    () => sessions.find((session) => session.sessionId === activeSessionId) ?? null,
-    [sessions, activeSessionId],
-  );
+  const rememberBufferData = useCallback((sessionId: string, data: string) => {
+    const buffers = buffersRef.current;
+    const next = (buffers.get(sessionId) ?? "") + data;
+    buffers.set(sessionId, next.length > scrollbackLimitChars ? next.slice(-scrollbackLimitChars) : next);
+  }, []);
+
+  const replaySessionBuffer = useCallback((sessionId: string) => {
+    const term = terminalRef.current;
+    if (!term || !sessionId) {
+      return;
+    }
+
+    term.reset();
+    const buffer = buffersRef.current.get(sessionId);
+    if (buffer) {
+      term.write(buffer);
+    }
+  }, []);
+
+  const syncActiveSize = useCallback(() => {
+    const fitAddon = fitAddonRef.current;
+    const term = terminalRef.current;
+    if (!fitAddon || !term || !activeRef.current) {
+      return;
+    }
+
+    try {
+      fitAddon.fit();
+      bridge?.resizeTerminal?.(activeRef.current, term.cols, term.rows);
+    } catch (_error) {
+      // Transient zero-size layouts are skipped until the panel settles.
+      // 面板尺寸未稳定时跳过偶发的零尺寸布局。
+    }
+  }, [bridge]);
 
   const ensureTerminal = useCallback(() => {
     if (terminalRef.current || typeof window === "undefined") {
@@ -59,6 +97,10 @@ export function TerminalView({ accent }: { accent: { rose: string; cyan: string 
     }
 
     void import("@xterm/xterm").then(({ Terminal: XTerm }) => {
+      if (disposedRef.current || !hostRef.current) {
+        return;
+      }
+
       const term = new XTerm({
         cursorBlink: true,
         fontFamily: '"JetBrains Mono", "Fira Code", monospace',
@@ -68,8 +110,13 @@ export function TerminalView({ accent }: { accent: { rose: string; cyan: string 
 
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
-      term.open(hostRef.current!);
-      fitAddon.fit();
+      term.open(hostRef.current);
+      try {
+        fitAddon.fit();
+      } catch (_error) {
+        // The host may not have a measurable layout on the first frame.
+        // 宿主元素首帧可能还没有可测量的布局。
+      }
 
       term.onData((data) => {
         if (activeRef.current) {
@@ -79,21 +126,51 @@ export function TerminalView({ accent }: { accent: { rose: string; cyan: string 
 
       terminalRef.current = term;
       fitAddonRef.current = fitAddon;
+      replaySessionBuffer(activeRef.current);
+      syncActiveSize();
+      term.focus();
     });
 
     return null;
-  }, [bridge]);
+  }, [bridge, replaySessionBuffer, syncActiveSize]);
 
   useEffect(() => {
     // The terminal host is a single persistent element reused across tab
     // switches; xterm sessions push bytes through the bridge by sessionId.
     // 终端宿主是跨标签切换复用的单一持久元素；xterm 会话按 sessionId
     // 经桥接推送字节。
+    disposedRef.current = false;
     ensureTerminal();
+
+    // Sessions created elsewhere (the "run in terminal" launcher, or before
+    // the view was mounted) live in the bridge's authoritative map; adopt
+    // them on mount so they get a visible tab.
+    // 在别处创建的会话（“在终端中运行”入口或视图挂载前）存于桥接侧的
+    // 权威表；挂载时收编它们，使其拥有可见标签。
+    let adoptionCancelled = false;
+    void bridge?.listTerminalSessions?.().then((existing) => {
+      if (adoptionCancelled || !existing?.length) {
+        return;
+      }
+
+      setSessions((current) => {
+        const known = new Set(current.map((session) => session.sessionId));
+        const adopted = existing
+          .filter((session) => !known.has(session.sessionId))
+          .map((session) => ({ ...session, closed: false }));
+        return adopted.length > 0 ? [...current, ...adopted] : current;
+      });
+      setActiveSessionId((current) => current || existing[existing.length - 1]?.sessionId || "");
+    });
 
     const unsubscribe = bridge?.subscribeToTerminal?.({
       onData: (payload) => {
-        if (payload.type === "data" && payload.sessionId === activeRef.current) {
+        if (payload.type !== "data") {
+          return;
+        }
+
+        rememberBufferData(payload.sessionId, payload.data);
+        if (payload.sessionId === activeRef.current) {
           terminalRef.current?.write(payload.data);
         }
       },
@@ -102,6 +179,7 @@ export function TerminalView({ accent }: { accent: { rose: string; cyan: string 
           return;
         }
 
+        buffersRef.current.delete(payload.sessionId);
         setSessions((current) =>
           current.map((session) =>
             session.sessionId === payload.sessionId ? { ...session, closed: true } : session,
@@ -115,32 +193,57 @@ export function TerminalView({ accent }: { accent: { rose: string; cyan: string 
       },
     });
 
-    return unsubscribe;
-  }, [bridge, ensureTerminal, t]);
+    return () => {
+      adoptionCancelled = true;
+      disposedRef.current = true;
+      unsubscribe?.();
+      // xterm owns its render loop and addons; dispose() tears both down so
+      // remounting the view does not leak one instance per mount.
+      // xterm 持有自己的渲染循环与插件；dispose() 一并释放，
+      // 避免每次重挂载泄漏一个实例。
+      terminalRef.current?.dispose();
+      terminalRef.current = null;
+      fitAddonRef.current = null;
+    };
+  }, [bridge, ensureTerminal, rememberBufferData, t]);
+
+  // Tab activation swaps the shared xterm onto the session's replayed buffer
+  // and re-fits the PTY, covering both user switches and adopted sessions.
+  // 标签激活时把共享 xterm 切换到该会话的回放缓冲并重新适配 PTY，
+  // 同时覆盖用户切换与收编的会话。
+  useEffect(() => {
+    if (!activeSessionId) {
+      return;
+    }
+
+    replaySessionBuffer(activeSessionId);
+    syncActiveSize();
+    terminalRef.current?.focus();
+  }, [activeSessionId, replaySessionBuffer, syncActiveSize]);
 
   useEffect(() => {
-    const resizeObserver = new ResizeObserver(() => {
-      const fitAddon = fitAddonRef.current;
-      const term = terminalRef.current;
-      if (!fitAddon || !term || !activeSessionId) {
-        return;
-      }
-
-      try {
-        fitAddon.fit();
-        bridge?.resizeTerminal?.(activeSessionId, term.cols, term.rows);
-      } catch (_error) {
-        // Transient zero-size layouts are skipped until the panel settles.
-        // 面板尺寸未稳定时跳过偶发的零尺寸布局。
-      }
-    });
+    const resizeObserver = new ResizeObserver(() => syncActiveSize());
 
     if (hostRef.current) {
       resizeObserver.observe(hostRef.current);
     }
 
     return () => resizeObserver.disconnect();
-  }, [activeSessionId, bridge]);
+  }, [syncActiveSize]);
+
+  const describeCreateError = useCallback(
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("terminal-session-limit")) {
+        return t("terminal.limitReached");
+      }
+      if (message.includes("terminal-cwd-invalid")) {
+        return t("terminal.cwdInvalid");
+      }
+      return t("terminal.createFailed");
+    },
+    [t],
+  );
 
   const createSession = async (options?: { command?: string; name?: string }) => {
     if (!bridge?.createTerminalSession) {
@@ -157,14 +260,14 @@ export function TerminalView({ accent }: { accent: { rose: string; cyan: string 
         name: options?.name,
       });
 
+      buffersRef.current.set(created.sessionId, "");
       setSessions((current) => [...current, { ...created, closed: false }]);
       setActiveSessionId(created.sessionId);
       setComposerOpen(false);
       setLastMessage("");
-      terminalRef.current?.reset();
       terminalRef.current?.focus();
-    } catch (_error) {
-      setLastMessage(t("terminal.createFailed"));
+    } catch (error) {
+      setLastMessage(describeCreateError(error));
     }
   };
 
@@ -176,16 +279,19 @@ export function TerminalView({ accent }: { accent: { rose: string; cyan: string 
       return;
     }
 
-    setSessions((current) => {
-      const next = current.filter((session) => session.sessionId !== sessionId);
-      if (activeRef.current === sessionId) {
-        setActiveSessionId(next[next.length - 1]?.sessionId ?? "");
+    buffersRef.current.delete(sessionId);
+    setSessions((current) => current.filter((session) => session.sessionId !== sessionId));
+    if (activeRef.current === sessionId) {
+      const remaining = sessionsRef.current.filter((session) => session.sessionId !== sessionId);
+      const nextActive = remaining[remaining.length - 1]?.sessionId ?? "";
+      setActiveSessionId(nextActive);
+      if (!nextActive) {
         terminalRef.current?.reset();
       }
-
-      return next;
-    });
+    }
   };
+
+  const openSessions = useMemo(() => sessions.filter((session) => !session.closed), [sessions]);
 
   return (
     <section className="grid gap-5">
@@ -258,11 +364,7 @@ export function TerminalView({ accent }: { accent: { rose: string; cyan: string 
             >
               <button
                 type="button"
-                onClick={() => {
-                  setActiveSessionId(session.sessionId);
-                  terminalRef.current?.reset();
-                  terminalRef.current?.focus();
-                }}
+                onClick={() => setActiveSessionId(session.sessionId)}
                 className="inline-flex items-center gap-2"
               >
                 <TerminalSquare size={13} />
@@ -298,7 +400,7 @@ export function TerminalView({ accent }: { accent: { rose: string; cyan: string 
           className="mt-4 min-h-[420px] overflow-hidden rounded-[24px] border border-white/10 bg-[#0f141b] p-3"
         />
 
-        {sessions.length === 0 ? (
+        {openSessions.length === 0 ? (
           <div className="mt-4 rounded-[24px] border border-white/8 bg-black/16 p-6 text-center">
             <p className="text-sm font-semibold text-white/72">{t("terminal.noSessions")}</p>
             <p className="mt-2 text-xs text-white/42">{t("terminal.noSessionsDetail")}</p>
@@ -321,32 +423,46 @@ export function RunInTerminalLauncher({
   const { t } = useI18n();
   const bridge = getHostBridge();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   if (!bridge?.createTerminalSession) {
     return null;
   }
 
   return (
-    <button
-      type="button"
-      disabled={busy}
-      onClick={async () => {
-        setBusy(true);
-        try {
-          await bridge.createTerminalSession?.({
-            cwd: process.cwd,
-            command: process.startCommand || process.id,
-            name: process.name,
-          });
-          onLaunched("terminal");
-        } finally {
-          setBusy(false);
-        }
-      }}
-      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/18 px-3 py-1.5 text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-white/60 transition hover:text-white"
-      style={{ borderColor: `${accent.cyan}30` }}
-    >
-      {t("terminal.runInTerminal")}
-    </button>
+    <>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setError("");
+          try {
+            await bridge.createTerminalSession?.({
+              cwd: process.cwd,
+              command: process.startCommand || process.id,
+              name: process.name,
+            });
+            onLaunched("terminal");
+          } catch (reason) {
+            const message = reason instanceof Error ? reason.message : String(reason);
+            setError(
+              message.includes("terminal-session-limit")
+                ? t("terminal.limitReached")
+                : message.includes("terminal-cwd-invalid")
+                  ? t("terminal.cwdInvalid")
+                  : t("terminal.createFailed"),
+            );
+          } finally {
+            setBusy(false);
+          }
+        }}
+        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/18 px-3 py-1.5 text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-white/60 transition hover:text-white"
+        style={{ borderColor: `${accent.cyan}30` }}
+      >
+        {t("terminal.runInTerminal")}
+      </button>
+      {error ? <span className="text-[0.65rem] text-rose-300/80">{error}</span> : null}
+    </>
   );
 }

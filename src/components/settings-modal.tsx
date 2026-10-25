@@ -146,7 +146,9 @@ export function SettingsModal({
             onClick={async () => {
               setBusy(true);
               try {
-                bridge?.installUpdate?.();
+                await bridge?.installUpdate?.();
+              } catch (_error) {
+                onMessage(t("settings.updateError", { message: t("settings.updateRequestFailed") }));
               } finally {
                 setBusy(false);
               }
@@ -171,6 +173,8 @@ export function SettingsModal({
                 if (next) {
                   setUpdateStatus(next);
                 }
+              } catch (_error) {
+                onMessage(t("settings.updateError", { message: t("settings.updateRequestFailed") }));
               } finally {
                 setBusy(false);
               }
@@ -193,6 +197,8 @@ export function SettingsModal({
               if (next) {
                 setUpdateStatus(next);
               }
+            } catch (_error) {
+              onMessage(t("settings.updateError", { message: t("settings.updateRequestFailed") }));
             } finally {
               setBusy(false);
             }

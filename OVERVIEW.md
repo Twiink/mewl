@@ -144,9 +144,9 @@ provider 当前：
 - 现在在 Electron 侧保存短的内存指标历史，让渲染层从实时样本绘制趋势图而不是静态快照
 - 让发现的主机进程保持只读，Mewl 不会向不拥有的进程发送生命周期信号
 - 现在暴露单独的观测终止路径，只在实时 pid 未被托管服务占用时才允许结束它
-- 现在通过 `electron-builder` 支持 Linux 打包基础，包括生成的图标资源和 AppImage、`.deb`、`.rpm` 输出的包元数据
+- 现在通过 `electron-builder` 支持 Linux 打包基础，包括生成的图标资源（含进 asar 的托盘图标）和 AppImage、`.deb`、`.rpm` 输出的包元数据；`node-pty` 显式 `asarUnpack`
 - 发行文档现在包含 `1.0.0` Linux 包产物的公开下载链接
-- 现在强制 Linux 包构建进入非发布产物模式，CI 打包不再需要 GitHub 发布凭据
+- `build.publish` 已切换为 GitHub provider：本地打包仍是 `--publish never`，推送 `v*` 标签时 GitHub Actions 先构建渲染层再发布 AppImage/deb/rpm 与 `latest-linux.yml` 到 GitHub Releases
 
 ### `electron/main.cjs`
 

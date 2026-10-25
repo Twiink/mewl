@@ -1,3 +1,4 @@
+const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const pty = require("node-pty");
@@ -9,6 +10,12 @@ const pty = require("node-pty");
 // Terminal 工作区的交互式 PTY 会话。会话与托管服务生命周期解耦：
 // 在这里运行服务命令只是调试便利，运行时不会把这些进程计为托管子进程。
 const sessions = new Map();
+
+// PTY processes are not free; a hard cap keeps runaway "run in terminal"
+// clicks from forking an unbounded process farm.
+// PTY 进程并非无成本；硬上限防止失控的“在终端中运行”点击
+// 制造无上限的进程群。
+const maxTerminalSessions = 12;
 
 let streamListener = null;
 
@@ -40,9 +47,32 @@ function resolveCwd(cwd) {
   return path.isAbsolute(requested) ? requested : path.resolve(os.homedir(), requested);
 }
 
+function assertUsableCwd(cwd) {
+  try {
+    if (!fs.statSync(cwd).isDirectory()) {
+      throw new Error("not a directory");
+    }
+  } catch (_error) {
+    // Stable markers let the renderer map main-process failures onto
+    // localized messages instead of showing the raw spawn error.
+    // 稳定标记让渲染层能把主进程失败映射为本地化文案，
+    // 而不是展示原始 spawn 错误。
+    const error = new Error(`terminal-cwd-invalid:${cwd}`);
+    error.code = "MEWL_TERMINAL_CWD_INVALID";
+    throw error;
+  }
+}
+
 function createTerminalSession({ cwd, cols, rows, command, name } = {}) {
+  if (sessions.size >= maxTerminalSessions) {
+    const error = new Error("terminal-session-limit");
+    error.code = "MEWL_TERMINAL_SESSION_LIMIT";
+    throw error;
+  }
+
   const sessionId = createSessionId();
   const sessionCwd = resolveCwd(cwd);
+  assertUsableCwd(sessionCwd);
   const sessionCols = Math.min(500, Math.max(20, Math.round(Number(cols) || 80)));
   const sessionRows = Math.min(300, Math.max(6, Math.round(Number(rows) || 24)));
   const commandLine = String(command || "").trim();
@@ -69,12 +99,18 @@ function createTerminalSession({ cwd, cols, rows, command, name } = {}) {
         env: { ...process.env, TERM: "xterm-256color" },
       });
 
-  sessions.set(sessionId, {
+  const session = {
     id: sessionId,
     term,
     name: String(name || commandLine || path.basename(shellPath)).slice(0, 48),
     createdAt: Date.now(),
-  });
+    // Natural onExit and an explicit kill both want to report the exit; the
+    // first one wins and the duplicate is suppressed.
+    // 自然退出与主动 kill 都要上报退出；先到者生效，重复的被抑制。
+    exitEmitted: false,
+  };
+
+  sessions.set(sessionId, session);
 
   term.onData((data) => {
     emitStream({ type: "data", sessionId, data });
@@ -82,13 +118,18 @@ function createTerminalSession({ cwd, cols, rows, command, name } = {}) {
 
   term.onExit(({ exitCode }) => {
     sessions.delete(sessionId);
+    if (session.exitEmitted) {
+      return;
+    }
+
+    session.exitEmitted = true;
     emitStream({ type: "exit", sessionId, exitCode });
   });
 
   return {
     sessionId,
     pid: term.pid,
-    name: sessions.get(sessionId).name,
+    name: session.name,
     cwd: sessionCwd,
     command: commandLine || null,
   };
@@ -131,7 +172,11 @@ function killTerminalSession(sessionId) {
     // PTY 可能在查表与 kill 之间已经退出。
   }
 
-  emitStream({ type: "exit", sessionId, exitCode: null, killed: true });
+  if (!session.exitEmitted) {
+    session.exitEmitted = true;
+    emitStream({ type: "exit", sessionId, exitCode: null, killed: true });
+  }
+
   return true;
 }
 

@@ -485,6 +485,8 @@ export const en = {
   "terminal.desktopOnly": "Terminal sessions require the Electron desktop bridge.",
   "terminal.createFailed": "The desktop bridge could not start a terminal session.",
   "terminal.killFailed": "The desktop bridge could not close that terminal session.",
+  "terminal.limitReached": "Terminal session limit reached. Close a session before opening another.",
+  "terminal.cwdInvalid": "That working directory does not exist.",
   "terminal.commandTag": "cmd",
 
   // Settings modal / 设置弹窗
@@ -520,6 +522,7 @@ export const en = {
   "settings.updateDownloading": "Downloading… {percent}%",
   "settings.updateDownloaded": "Version {version} downloaded and ready.",
   "settings.updateError": "Update check failed: {message}",
+  "settings.updateRequestFailed": "the desktop bridge request failed",
   "settings.updateIdle": "Not checked yet.",
 
   // Jobs / 一次性任务
@@ -530,6 +533,7 @@ export const en = {
   "jobs.run": "Run",
   "jobs.runCount": "{count} run{|s}",
   "jobs.lastRunExit": "Last exit: {code}",
+  "jobs.historyTitle": "Run history",
 
   // Editor additions / 编辑器新增
   "editor.lifecycle.title": "Run style",
