@@ -145,6 +145,7 @@ export const zh: Record<TranslationKey, string> = {
   "field.target": "目标",
   "field.none": "无",
   "field.idle": "空闲",
+  "field.morePorts": "+{count} 个",
 
   // Overview page / 总览页
   "overview.services": "服务",

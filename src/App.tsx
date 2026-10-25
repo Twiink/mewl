@@ -1,5 +1,6 @@
 import {
   type CSSProperties,
+  type ReactNode,
   startTransition,
   useEffect,
   useDeferredValue,
@@ -1611,6 +1612,30 @@ function App() {
     });
   };
 
+  // Busy runtimes can expose dozens of ports; stat cells stay compact by
+  // showing the first few and folding the rest into a "+N" badge. The full
+  // list lives in the expanded view / inspector.
+  // 繁忙的运行时可能暴露几十个端口；统计格只展示前几个，其余折叠进 “+N”
+  // 徽标，完整列表放在展开视图 / 检查器中。
+  const renderPortsStatValue = (ports: number[], limit: number) => {
+    if (ports.length === 0) {
+      return t("field.none");
+    }
+
+    const overflowCount = ports.length - limit;
+
+    return (
+      <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="tabular-nums">{ports.slice(0, limit).join(", ")}</span>
+        {overflowCount > 0 ? (
+          <span className="rounded-full border border-white/10 bg-black/26 px-2 py-0.5 text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-white/58">
+            {t("field.morePorts", { count: overflowCount })}
+          </span>
+        ) : null}
+      </span>
+    );
+  };
+
   const renderManagedLifecycleIcons = (process: ManagedProcess) => (
     <div className="flex items-center gap-2">
       {(["start", "stop", "restart"] as const).map((action) => {
@@ -2329,17 +2354,15 @@ function App() {
                   <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
                     <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
                       <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.ports")}</p>
-                      <p className="mt-2 text-white/84">
-                        {process.ports.length > 0 ? process.ports.join(", ") : t("field.none")}
-                      </p>
+                      <p className="mt-2 text-white/84">{renderPortsStatValue(process.ports, 2)}</p>
                     </div>
                     <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
                       <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.cpu")}</p>
-                      <p className="mt-2 text-white/84">{process.cpu}%</p>
+                      <p className="mt-2 tabular-nums text-white/84">{process.cpu}%</p>
                     </div>
                     <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
                       <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.memory")}</p>
-                      <p className="mt-2 text-white/84">{process.memory} MB</p>
+                      <p className="mt-2 tabular-nums text-white/84">{process.memory} MB</p>
                     </div>
                   </div>
                 </button>
@@ -2507,17 +2530,15 @@ function App() {
                 <div className="mt-5 grid grid-cols-3 gap-3 text-sm">
                   <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
                     <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.runtime")}</p>
-                    <p className="mt-2 text-white/84">{process.runtime}</p>
+                    <p className="mt-2 truncate text-white/84">{process.runtime}</p>
                   </div>
                   <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
                     <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.ports")}</p>
-                    <p className="mt-2 text-white/84">
-                      {process.ports.length > 0 ? process.ports.join(", ") : t("field.none")}
-                    </p>
+                    <p className="mt-2 text-white/84">{renderPortsStatValue(process.ports, 2)}</p>
                   </div>
                   <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
                     <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.pid")}</p>
-                    <p className="mt-2 text-white/84">{process.pid ?? t("field.none")}</p>
+                    <p className="mt-2 truncate tabular-nums text-white/84">{process.pid ?? t("field.none")}</p>
                   </div>
                 </div>
               </button>
@@ -2545,6 +2566,21 @@ function App() {
                       {process.cwd}
                     </p>
                   </div>
+                  {process.ports.length > 0 ? (
+                    <div className="rounded-[20px] border border-white/8 bg-black/18 px-4 py-4">
+                      <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.ports")}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {process.ports.map((port, index) => (
+                          <span
+                            key={`${port}-${index}`}
+                            className="rounded-full border border-white/8 bg-black/26 px-2.5 py-1 font-mono text-xs tabular-nums text-white/72"
+                          >
+                            {port}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3">
                       <p className="text-[0.68rem] uppercase tracking-[0.18em] text-white/34">{t("field.uptime")}</p>
@@ -2742,9 +2778,9 @@ function App() {
                   ) : null}
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-                    {[
+                    {([
                       [t("field.pid"), process.pid ? `${process.pid}` : t("field.idle")],
-                      [t("field.ports"), process.ports.length > 0 ? process.ports.join(", ") : t("field.none")],
+                      [t("field.ports"), renderPortsStatValue(process.ports, 2)],
                       [t("managed.field.pulse"), process.lastHeartbeat],
                       [
                         t("managed.field.restart"),
@@ -2755,7 +2791,7 @@ function App() {
                               limit: process.restartLimit,
                             }),
                       ],
-                    ].map(([label, value]) => (
+                    ] as Array<[string, ReactNode]>).map(([label, value]) => (
                       <div
                         key={label}
                         className="rounded-[18px] border border-white/8 bg-black/18 px-3 py-3"

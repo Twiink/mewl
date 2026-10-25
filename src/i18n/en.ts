@@ -154,6 +154,7 @@ export const en = {
   "field.target": "Target",
   "field.none": "none",
   "field.idle": "idle",
+  "field.morePorts": "+{count} more",
 
   // Overview page / 总览页
   "overview.services": "Services",
